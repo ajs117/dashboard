@@ -1,0 +1,16 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "GBP",
+          "symbol": "^FTSE",
+          "regularMarketPrice": 8200.5,
+          "chartPreviousClose": 8150.0,
+          "previousClose": 8150.0
+        }
+      }
+    ],
+    "error": null
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "photos": [
+    {
+      "id": "1234567",
+      "thumbnail": {"src": "https://t.plnspttrs.net/small.jpg",
+                    "size": {"width": 200, "height": 133}},
+      "thumbnail_large": {"src": "https://t.plnspttrs.net/large.jpg",
+                          "size": {"width": 400, "height": 266}},
+      "link": "https://www.planespotters.net/photo/1234567",
+      "photographer": "Jane Doe"
+    }
+  ]
+}

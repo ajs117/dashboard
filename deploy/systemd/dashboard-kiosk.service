@@ -1,0 +1,29 @@
+[Unit]
+Description=Desk Dashboard kiosk (cage + Chromium)
+After=dashboard-backend.service systemd-user-sessions.target
+Wants=dashboard-backend.service
+
+[Service]
+User=pi
+# Give the user a real login session on tty1 so Wayland/cage can grab the seat.
+PAMName=login
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+# Chromium profile in RAM (tmpfs) so the read-only root FS is never written to.
+ExecStart=/usr/bin/cage -- /usr/bin/chromium-browser \
+  --kiosk \
+  --noerrdialogs \
+  --disable-infobars \
+  --disable-restore-session-state \
+  --disable-session-crashed-bubble \
+  --check-for-update-interval=31536000 \
+  --user-data-dir=/dev/shm/dashboard-chromium \
+  --app=http://localhost:8080
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

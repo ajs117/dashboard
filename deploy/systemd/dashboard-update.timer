@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll git for Desk Dashboard updates
+
+[Timer]
+# First run shortly after boot, then every 2 minutes.
+OnBootSec=90
+OnUnitActiveSec=120
+AccuracySec=15
+
+[Install]
+WantedBy=timers.target

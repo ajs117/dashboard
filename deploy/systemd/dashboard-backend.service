@@ -1,0 +1,18 @@
+[Unit]
+Description=Desk Dashboard backend (FastAPI/uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/data/dashboard/backend
+Environment=DASHBOARD_CONFIG=/data/config.yaml
+ExecStart=/data/dashboard/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=3
+# Resilience on a small Pi:
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

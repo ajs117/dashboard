@@ -1,0 +1,14 @@
+{
+  "ac": [
+    {"hex": "400f1a", "flight": "BAW123  ", "t": "A320", "r": "G-EUYA",
+     "lat": 51.55, "lon": -0.15, "alt_baro": 12000, "gs": 340.5, "track": 95.0,
+     "baro_rate": 1200},
+    {"hex": "a1b2c3", "flight": "EZY456", "t": "A20N", "r": "G-EZAA",
+     "lat": 51.51, "lon": -0.13, "alt_baro": "ground", "gs": 12.0, "track": 270.0},
+    {"hex": "ddee01", "flight": null, "t": "B738", "r": null,
+     "lat": 52.0, "lon": -0.5, "alt_baro": 35000, "gs": 450.0, "track": 10.0},
+    {"hex": "nolatlon", "flight": "NOPOS", "t": "C172",
+     "lat": null, "lon": null, "alt_baro": 3000}
+  ],
+  "total": 4
+}

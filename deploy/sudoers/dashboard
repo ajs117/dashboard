@@ -1,0 +1,3 @@
+# Allow the dashboard auto-updater (running as pi) to restart the services
+# without a password. Install to /etc/sudoers.d/dashboard (mode 0440, root-owned).
+pi ALL=(root) NOPASSWD: /usr/bin/systemctl restart dashboard-backend.service, /usr/bin/systemctl restart dashboard-kiosk.service

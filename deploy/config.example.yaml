@@ -1,0 +1,82 @@
+# Dashboard runtime config.
+# Copy this to the writable data partition on the Pi as config.yaml and fill in.
+# The real config.yaml is gitignored and must NEVER be committed (it holds secrets).
+#
+# Location can also be pushed at runtime via:  POST /api/location  (see README).
+
+# --- Where the dashboard thinks it is (no GPS on the Pi) ---
+location:
+  label: "Home"
+  lat: 51.5074          # default; London. Override per-device.
+  lon: -0.1278
+  timezone: "Europe/London"
+
+# --- Units ---
+units:
+  temperature: "celsius"     # celsius | fahrenheit
+  wind: "kmh"                # kmh | mph | ms | kn
+  distance: "nm"             # nm | km | mi  (aircraft distances)
+
+# --- Home page world clocks (carousel; IANA timezone names) ---
+world_clocks:
+  - { label: "California",  tz: "America/Los_Angeles" }
+  - { label: "Chicago",     tz: "America/Chicago" }
+  - { label: "UK",          tz: "Europe/London" }
+  - { label: "Europe",      tz: "Europe/Paris" }
+  - { label: "East Europe", tz: "Europe/Bucharest" }
+  - { label: "India",       tz: "Asia/Kolkata" }
+  - { label: "Hong Kong",   tz: "Asia/Hong_Kong" }
+
+# --- Home page stocks/indices ticker (Yahoo Finance symbols) ---
+stocks:
+  enabled: true
+  symbols:
+    - { symbol: "^FTSE", label: "FTSE 100" }
+    - { symbol: "^GSPC", label: "S&P 500" }
+    - { symbol: "^IXIC", label: "NASDAQ" }
+    - { symbol: "GC=F",  label: "Gold" }
+    - { symbol: "CL=F",  label: "Oil (WTI)" }
+
+# --- National Rail Darwin OpenLDBWS (SOAP) ---
+trains:
+  enabled: true
+  token: "PUT-YOUR-DARWIN-TOKEN-HERE"   # legacy OpenLDBWS token
+  station_crs: "KGX"                     # origin station 3-letter CRS code
+  destination_crs: ""                    # optional filter, e.g. "CBG"; blank = all
+  rows: 10                               # number of departures to fetch
+
+# --- Aircraft (airplanes.live) ---
+aircraft:
+  enabled: true
+  radius_nm: 50          # search radius around location
+  max_results: 12        # nearest N returned to the UI
+
+# --- Radar (RainViewer) ---
+radar:
+  forecast_zoom: 7       # tile zoom to sample rain over your location (RainViewer caps at 7)
+
+# --- Cache TTLs (seconds) ---
+cache:
+  weather: 600
+  radar: 120
+  aircraft: 5            # upstream is also throttled to >=1 req/sec
+  trains: 30
+  stocks: 300
+
+# --- Frontend refresh intervals (seconds) ---
+refresh:
+  weather: 600
+  radar: 120
+  aircraft: 8
+  trains: 30
+  stocks: 300
+  clock: 1
+
+# --- Admin token: required to POST changes to location/settings ---
+# Generate something random; the frontend settings page uses it.
+admin_token: "change-me"
+
+# --- HTTP server ---
+server:
+  host: "127.0.0.1"
+  port: 8080

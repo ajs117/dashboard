@@ -1,0 +1,11 @@
+[Unit]
+Description=Desk Dashboard git auto-update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+Environment=DASHBOARD_REPO=/data/dashboard
+Environment=DASHBOARD_BRANCH=main
+ExecStart=/data/dashboard/deploy/scripts/update.sh

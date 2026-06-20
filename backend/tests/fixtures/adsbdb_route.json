@@ -1,0 +1,14 @@
+{
+  "response": {
+    "flightroute": {
+      "callsign": "BAW123",
+      "airline": {"name": "British Airways", "icao": "BAW"},
+      "origin": {"iata_code": "LHR", "icao_code": "EGLL",
+                 "name": "London Heathrow", "municipality": "London",
+                 "country_name": "United Kingdom"},
+      "destination": {"iata_code": "JFK", "icao_code": "KJFK",
+                      "name": "John F Kennedy International", "municipality": "New York",
+                      "country_name": "United States"}
+    }
+  }
+}

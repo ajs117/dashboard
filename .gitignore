@@ -1,0 +1,22 @@
+# Secrets / runtime config (lives on the Pi, never committed)
+config.yaml
+*.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Chromium kiosk profile / runtime state
+chromium-profile/
+*.log
+
+# Local screenshots / scratch
+.shot/
+
+# OS
+.DS_Store
+Thumbs.db

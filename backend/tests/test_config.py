@@ -1,0 +1,54 @@
+"""Config loader: env override, public() strips secrets, save() round-trips."""
+from __future__ import annotations
+
+import importlib
+
+import pytest
+
+import app.config as config_mod
+
+
+@pytest.fixture
+def fresh_config(tmp_path, monkeypatch):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        "location: {label: Test, lat: 1.0, lon: 2.0, timezone: UTC}\n"
+        "trains: {token: SECRET, station_crs: KGX, rows: 5}\n"
+        "aircraft: {radius_nm: 50}\n"
+        "units: {temperature: celsius}\n"
+        "world_clocks: []\n"
+        "refresh: {weather: 600}\n"
+        "admin_token: hunter2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHBOARD_CONFIG", str(cfg_file))
+    importlib.reload(config_mod)
+    config_mod.load()
+    return config_mod, cfg_file
+
+
+def test_load_from_env(fresh_config):
+    cfg, path = fresh_config
+    assert cfg.source_path() == path
+    assert cfg.is_fallback() is False
+    assert cfg.get()["location"]["label"] == "Test"
+
+
+def test_public_strips_token(fresh_config):
+    cfg, _ = fresh_config
+    pub = cfg.public()
+    assert "token" not in pub["trains"]
+    assert pub["trains"]["station_crs"] == "KGX"
+    assert "admin_token" not in pub
+
+
+def test_save_roundtrip(fresh_config):
+    cfg, path = fresh_config
+    cfg.get()["location"]["lat"] = 9.9
+    cfg.save()
+    # Reload a clean module instance from the same file.
+    importlib.reload(cfg)
+    cfg.load()
+    assert cfg.get()["location"]["lat"] == 9.9
+    # Token preserved through save.
+    assert cfg.get()["trains"]["token"] == "SECRET"
