@@ -76,10 +76,14 @@ export const home = {
     const loadWeather = async () => {
       try {
         const env = await ctx.api("/api/weather");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        const wx = el.querySelector("#wx");
+        if (!wx) return;
         ctx.setStale(env.stale, "weather");
-        renderWeather(el.querySelector("#wx"), env.data);
+        renderWeather(wx, env.data);
       } catch (e) {
-        el.querySelector("#wx").innerHTML = `<div class="err">Weather unavailable</div>`;
+        const wx = el.querySelector("#wx");
+        if (wx) wx.innerHTML = `<div class="err">Weather unavailable</div>`;
       }
     };
     await loadWeather();
@@ -89,9 +93,12 @@ export const home = {
     const loadStocks = async () => {
       try {
         const env = await ctx.api("/api/stocks");
-        renderStocks(el.querySelector("#stocks"), env.data, env.stale);
+        const stk = el.querySelector("#stocks");
+        if (!stk) return;
+        renderStocks(stk, env.data, env.stale);
       } catch (e) {
-        el.querySelector("#stocks").innerHTML = `<div class="muted">Markets unavailable</div>`;
+        const stk = el.querySelector("#stocks");
+        if (stk) stk.innerHTML = `<div class="muted">Markets unavailable</div>`;
       }
     };
     await loadStocks();

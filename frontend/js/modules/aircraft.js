@@ -37,12 +37,14 @@ export const aircraft = {
     const load = async () => {
       try {
         const env = await ctx.api("/api/aircraft");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away mid-fetch
+        if (!el.querySelector("#ac-list")) return;        // view replaced
         ctx.setStale(env.stale, "aircraft");
         this._data = env.data;
         this._render(el, ctx);
       } catch (e) {
-        el.querySelector("#ac-list").innerHTML =
-          `<div class="err">Aircraft unavailable</div>`;
+        const list = el.querySelector("#ac-list");
+        if (list) list.innerHTML = `<div class="err">Aircraft unavailable</div>`;
       }
     };
     await load();

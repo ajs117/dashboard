@@ -25,11 +25,18 @@ export function setStale(stale, msg) {
 }
 
 let current = null;
+let currentRoute = null;
+let navToken = 0;
 const view = () => document.getElementById("view");
 const backBtn = () => document.getElementById("back-btn");
 
 async function navigate(route) {
   if (!MODULES[route]) route = "home";
+  // Ignore duplicate navigation to the same route. WPE/WebKit can fire an extra
+  // hashchange on load, which would otherwise clear #view mid-mount.
+  if (route === currentRoute && current) return;
+  currentRoute = route;
+  const myToken = ++navToken;          // invalidates any in-flight async work
   if (current && current.unmount) {
     try { current.unmount(); } catch (e) { /* ignore */ }
   }
@@ -37,10 +44,16 @@ async function navigate(route) {
   backBtn().hidden = route === "home";   // back button only inside an app
   view().innerHTML = "";
   current = MODULES[route];
+  const ctx = {
+    config: state.config, api, setStale, go,
+    isCurrent: () => myToken === navToken,   // false once superseded
+  };
   try {
-    await current.mount(view(), { config: state.config, api, setStale, go });
+    await current.mount(view(), ctx);
   } catch (e) {
-    view().innerHTML = `<div class="err">Failed to load ${route}: ${e.message}</div>`;
+    if (myToken === navToken) {
+      view().innerHTML = `<div class="err">Failed to load ${route}: ${e.message}</div>`;
+    }
   }
 }
 

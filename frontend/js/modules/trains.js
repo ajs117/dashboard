@@ -15,10 +15,14 @@ export const trains = {
     const load = async () => {
       try {
         const env = await ctx.api("/api/trains");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        const root = el.querySelector("#trains");
+        if (!root) return;
         ctx.setStale(env.stale, "trains");
-        this._render(el.querySelector("#trains"), env.data);
+        this._render(root, env.data);
       } catch (e) {
-        el.querySelector("#trains").innerHTML =
+        const root = el.querySelector("#trains");
+        if (root) root.innerHTML =
           `<div class="err">Departures unavailable.<br><span class="muted">
            Check the Darwin token / station code in config.</span></div>`;
       }

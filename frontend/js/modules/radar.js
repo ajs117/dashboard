@@ -26,14 +26,17 @@ export const radar = {
     const load = async () => {
       try {
         const env = await ctx.api("/api/radar");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
         ctx.setStale(env.stale, "radar");
         this._showCurrent(env.data);
       } catch (e) { /* keep last layer */ }
       try {
         const fc = await ctx.api("/api/radar/forecast");
-        this._renderPanel(el.querySelector("#rain-panel"), fc.data);
+        const panel = el.querySelector("#rain-panel");
+        if (panel) this._renderPanel(panel, fc.data);
       } catch (e) {
-        el.querySelector("#rain-panel").innerHTML = `<span class="muted">Forecast unavailable</span>`;
+        const panel = el.querySelector("#rain-panel");
+        if (panel) panel.innerHTML = `<span class="muted">Forecast unavailable</span>`;
       }
     };
     await load();
