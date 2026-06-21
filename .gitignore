@@ -20,3 +20,6 @@ chromium-profile/
 # OS
 .DS_Store
 Thumbs.db
+
+# local debug screenshots
+.shot_*.png
