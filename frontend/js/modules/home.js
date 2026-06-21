@@ -117,10 +117,15 @@ export const home = {
     el.querySelectorAll(".app-tile").forEach((b) =>
       ctx.tapRow(b, () => ctx.go(b.dataset.route)));
     const track = el.querySelector("#apps-track");
-    ctx.tap(el.querySelector("#apps-prev"),
-      () => track.scrollBy({ left: -track.clientWidth * 0.7, behavior: "smooth" }));
-    ctx.tap(el.querySelector("#apps-next"),
-      () => track.scrollBy({ left: track.clientWidth * 0.7, behavior: "smooth" }));
+    const prevA = el.querySelector("#apps-prev"), nextA = el.querySelector("#apps-next");
+    ctx.tap(prevA, () => track.scrollBy({ left: -track.clientWidth * 0.7, behavior: "smooth" }));
+    ctx.tap(nextA, () => track.scrollBy({ left: track.clientWidth * 0.7, behavior: "smooth" }));
+    // Only show the paging arrows if the tiles actually overflow (with 4 they fit, so
+    // every app is reachable with a single tap — no scrolling on the iffy touch panel).
+    requestAnimationFrame(() => {
+      const overflow = track.scrollWidth > track.clientWidth + 4;
+      prevA.hidden = nextA.hidden = !overflow;
+    });
 
     const bigTime = el.querySelector("#big-time");
     const bigDate = el.querySelector("#big-date");
@@ -146,7 +151,7 @@ export const home = {
     this._feedTimer = setInterval(() => {
       this._feedIdx = (this._feedIdx + 1) % Math.max(1, this._feed.length);
       this._renderFeed(el);
-    }, 9000);
+    }, 25000);   // calmer rotation so it doesn't burn through items
     const loadNews = async () => {
       try {
         const env = await ctx.api("/api/news");

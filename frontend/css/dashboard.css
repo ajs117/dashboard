@@ -54,25 +54,27 @@ html, body {
 .big-time { font-size: 78px; font-weight: 700; line-height: 1; letter-spacing: 2px; }
 .big-date { font-size: 22px; color: var(--muted); margin-top: 4px; }
 
-/* News + facts panel (under the clock) */
-.news-card { grid-column: 1; grid-row: 2; background: var(--panel);
+/* News + facts panel (under the clock) — fixed height so rotating content never reflows */
+.news-card { grid-column: 1; grid-row: 2; height: 92px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px;
-  display: flex; flex-direction: column; justify-content: center; overflow: hidden; min-height: 0; }
-.news-tag { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+  display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+.news-tag { font-size: 12px; font-weight: 700; margin-bottom: 4px; flex: 0 0 auto; }
 .news-tag.news { color: var(--accent); }
 .news-tag.fact { color: var(--warn); }
-.news-text { font-size: 16px; line-height: 1.25; max-height: 3.8em; overflow: hidden; }
+.news-text { font-size: 16px; line-height: 1.25; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 /* App carousel (paged: swipe/scroll, arrows page, tap opens) */
 .app-carousel { grid-column: 1; grid-row: 3; display: flex; align-items: stretch; gap: 8px; min-height: 0; }
 .car-arrow { flex: 0 0 auto; width: 38px; border: 1px solid var(--line); background: var(--panel);
   color: var(--fg); border-radius: 12px; font-size: 26px; line-height: 1; cursor: pointer; }
 .car-arrow:active { background: var(--panel-2); }
+.car-arrow[hidden] { display: none; }
 .car-track { flex: 1; display: flex; gap: 14px; overflow-x: auto; min-width: 0;
   scroll-snap-type: x mandatory; scrollbar-width: none; }
 .car-track::-webkit-scrollbar { display: none; }
 .app-tile {
-  scroll-snap-align: start; flex: 0 0 calc((100% - 28px) / 3); position: relative;
+  scroll-snap-align: start; flex: 1 1 0; min-width: 96px; position: relative;
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
   color: var(--fg); display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 8px; padding: 18px 8px; cursor: pointer;

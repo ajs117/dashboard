@@ -13,7 +13,7 @@ from typing import Any
 from . import client
 
 _URL = "https://uselessfacts.jsph.pl/api/v2/facts/random?language=en"
-_COUNT = 8
+_COUNT = 15
 
 
 async def _one() -> str | None:
