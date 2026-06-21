@@ -48,27 +48,45 @@ html, body {
 .home {
   display: grid; height: 100%; padding: 16px; gap: 14px;
   grid-template-columns: 1.45fr 1fr;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto 1fr auto;
 }
 .clock-card { grid-column: 1; grid-row: 1; }
 .big-time { font-size: 78px; font-weight: 700; line-height: 1; letter-spacing: 2px; }
 .big-date { font-size: 22px; color: var(--muted); margin-top: 4px; }
 
-/* App launcher tiles */
-.launcher { grid-column: 1; grid-row: 2; display: grid;
-            grid-template-columns: repeat(3, 1fr); gap: 26px; }
+/* News + facts panel (under the clock) */
+.news-card { grid-column: 1; grid-row: 2; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px;
+  display: flex; flex-direction: column; justify-content: center; overflow: hidden; min-height: 0; }
+.news-tag { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+.news-tag.news { color: var(--accent); }
+.news-tag.fact { color: var(--warn); }
+.news-text { font-size: 16px; line-height: 1.25; max-height: 3.8em; overflow: hidden; }
+
+/* App carousel (paged: swipe/scroll, arrows page, tap opens) */
+.app-carousel { grid-column: 1; grid-row: 3; display: flex; align-items: stretch; gap: 8px; min-height: 0; }
+.car-arrow { flex: 0 0 auto; width: 38px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--fg); border-radius: 12px; font-size: 26px; line-height: 1; cursor: pointer; }
+.car-arrow:active { background: var(--panel-2); }
+.car-track { flex: 1; display: flex; gap: 14px; overflow-x: auto; min-width: 0;
+  scroll-snap-type: x mandatory; scrollbar-width: none; }
+.car-track::-webkit-scrollbar { display: none; }
 .app-tile {
+  scroll-snap-align: start; flex: 0 0 calc((100% - 28px) / 3); position: relative;
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
   color: var(--fg); display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 8px; padding: 18px 8px; cursor: pointer;
   transition: transform .08s, background .12s;
 }
 .app-tile:active { transform: scale(.97); background: var(--panel-2); }
-.app-tile .ico { font-size: 46px; }
-.app-tile .lbl { font-size: 18px; font-weight: 600; }
+.app-tile .ico { font-size: 44px; }
+.app-tile .lbl { font-size: 17px; font-weight: 600; }
+.app-tile .tile-badge { position: absolute; top: 8px; right: 10px; background: var(--bad);
+  color: #fff; min-width: 20px; height: 20px; border-radius: 10px; font-size: 13px;
+  font-weight: 800; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
 
 /* Weather */
-.weather-card { grid-column: 2; grid-row: 1 / span 2; background: var(--panel);
+.weather-card { grid-column: 2; grid-row: 1 / span 3; background: var(--panel);
                 border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
 .wx-now { display: flex; align-items: center; gap: 14px; }
 .wx-temp { font-size: 56px; font-weight: 700; line-height: 1; }
@@ -203,3 +221,44 @@ html, body {
 .exp-late { color: #ffd24a; }
 .exp-cancelled { color: #ff6a5a; }
 .brow.is-cancelled .b-dest .dst { color: rgba(255,174,38,.4); text-decoration: line-through; }
+
+/* ============ TRACKER (custom watch routines) ============ */
+.tracker { height: 100%; padding: 24px; overflow: auto; position: relative; }
+.trk-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 20px; max-width: 680px; margin: 0 auto 16px; }
+.trk-card.trk-alerting { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.trk-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.trk-label { font-size: 22px; font-weight: 700; }
+.trk-note { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.trk-value { font-size: 34px; font-weight: 800; text-align: right; line-height: 1.1; }
+.trk-change { font-size: 13px; font-weight: 600; color: var(--muted); }
+.trk-change.up { color: var(--bad); }     /* a holiday getting pricier is bad -> red */
+.trk-change.down { color: var(--good); }
+.trk-spark { width: 100%; height: 44px; margin: 12px 0; display: block; }
+.trk-banner { background: rgba(210,153,34,.15); border: 1px solid var(--warn); border-radius: 10px;
+  padding: 8px 12px; font-size: 14px; display: flex; justify-content: space-between;
+  align-items: center; gap: 10px; }
+.trk-foot { display: flex; justify-content: space-between; align-items: center;
+  margin-top: 12px; font-size: 13px; }
+.trk-btn { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 16px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.trk-btn:active { background: var(--line); }
+.trk-btn.update { background: var(--accent); color: #04111f; border-color: var(--accent); }
+
+/* On-screen numeric keypad for manual price entry */
+.keypad-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center; z-index: 1100; }
+.keypad { background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+  padding: 18px; width: 340px; }
+.kp-title { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
+.kp-display { font-size: 32px; font-weight: 800; text-align: right; background: var(--bg);
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; min-height: 54px; }
+.kp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.kp-key { font-size: 24px; font-weight: 700; padding: 16px 0; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 12px; color: var(--fg); cursor: pointer; }
+.kp-key:active { background: var(--line); }
+.kp-actions { display: flex; gap: 10px; margin-top: 12px; }
+.kp-actions button { flex: 1; padding: 14px; font-size: 16px; font-weight: 700;
+  border-radius: 12px; border: 1px solid var(--line); cursor: pointer; }
+.kp-cancel { background: var(--panel-2); color: var(--fg); }
+.kp-save { background: var(--accent); color: #04111f; border-color: var(--accent); }

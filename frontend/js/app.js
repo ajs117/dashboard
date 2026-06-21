@@ -3,8 +3,9 @@ import { home } from "./modules/home.js";
 import { aircraft } from "./modules/aircraft.js";
 import { radar } from "./modules/radar.js";
 import { trains } from "./modules/trains.js";
+import { tracker } from "./modules/tracker.js";
 
-const MODULES = { home, aircraft, radar, trains };
+const MODULES = { home, aircraft, radar, trains, tracker };
 
 export const state = { config: null };
 

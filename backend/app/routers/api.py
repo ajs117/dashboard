@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from .. import config
 from ..cache import cache
 from ..providers import (
-    aircraft, photos, radar, radar_forecast, route, stocks, trains, weather,
+    aircraft, facts, news, photos, radar, radar_forecast, route, stocks, trains, weather,
 )
 
 router = APIRouter(prefix="/api", tags=["data"])
@@ -82,3 +82,17 @@ async def get_trains() -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="trains module disabled")
     ttl = _ttls().get("trains", 30)
     return await cache.get_or_fetch("trains", ttl, lambda: trains.fetch(cfg))
+
+
+@router.get("/news")
+async def get_news() -> dict[str, Any]:
+    cfg = config.get()
+    ttl = _ttls().get("news", 900)
+    return await cache.get_or_fetch("news", ttl, lambda: news.fetch(cfg))
+
+
+@router.get("/facts")
+async def get_facts() -> dict[str, Any]:
+    cfg = config.get()
+    ttl = _ttls().get("facts", 3600)
+    return await cache.get_or_fetch("facts", ttl, lambda: facts.fetch(cfg))

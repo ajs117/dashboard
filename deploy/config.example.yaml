@@ -62,6 +62,8 @@ cache:
   aircraft: 5            # upstream is also throttled to >=1 req/sec
   trains: 30
   stocks: 300
+  news: 900             # BBC UK+World headlines
+  facts: 3600           # random trivia (Useless Facts API)
 
 # --- Frontend refresh intervals (seconds) ---
 refresh:

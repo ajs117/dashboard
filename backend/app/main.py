@@ -10,7 +10,7 @@ from starlette.types import Scope
 
 from . import config
 from .providers import aclose
-from .routers import api, config_api
+from .routers import api, config_api, trackers_api
 
 _FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -45,6 +45,7 @@ app = FastAPI(title="Pi Desk Dashboard", lifespan=lifespan)
 
 app.include_router(api.router)
 app.include_router(config_api.router)
+app.include_router(trackers_api.router)
 
 
 @app.get("/healthz")

@@ -260,7 +260,7 @@ export const aircraft = {
     ph.style.backgroundImage = "";
     ph.innerHTML = `<span class="muted">Loading photo…</span>`;
     try {
-      const env = await ctx.api(`/api/aircraft/${hex}/photo`);
+      const env = await ctx.api(`/api/aircraft/${encodeURIComponent(hex)}/photo`);
       if (hex !== this._selected) return;
       const p = env.data;
       const url = p && safeHttpUrl(p.thumbnail);   // reject non-http(s) / CSS-breaking URLs

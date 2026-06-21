@@ -1,4 +1,4 @@
-// Home: clock, weather (dew point + wind), world-clock carousel, stocks ticker, launcher.
+// Home: clock, weather, news+facts panel, world-clock carousel, stocks ticker, app carousel.
 import { esc } from "../util.js";
 
 const WMO_EMOJI = {
@@ -12,6 +12,36 @@ const APPS = [
   { route: "aircraft", ico: "✈️", label: "Aircraft" },
   { route: "radar", ico: "🌧️", label: "Rain Radar" },
   { route: "trains", ico: "🚆", label: "Trains" },
+  { route: "tracker", ico: "📈", label: "Tracker" },
+];
+
+// Bundled trivia (offline-friendly; rotated alongside live news headlines).
+const FACTS = [
+  "Honey never spoils — edible pots have been found in 3,000-year-old tombs.",
+  "Octopuses have three hearts and blue, copper-based blood.",
+  "A day on Venus is longer than its year.",
+  "Bananas are berries, but strawberries aren't.",
+  "The Eiffel Tower can grow over 15 cm taller in summer heat.",
+  "Wombats produce cube-shaped droppings.",
+  "Sharks predate trees by about 50 million years.",
+  "A bolt of lightning is roughly five times hotter than the Sun's surface.",
+  "Scotland's national animal is the unicorn.",
+  "There are more possible chess games than atoms in the observable universe.",
+  "Hot water can freeze faster than cold water (the Mpemba effect).",
+  "A group of flamingos is called a flamboyance.",
+  "The shortest war in history lasted about 38 minutes.",
+  "Humans share roughly 60% of their DNA with bananas.",
+  "Sea otters hold hands while sleeping so they don't drift apart.",
+  "The Great Wall of China isn't visible from space with the naked eye.",
+  "Cows have best friends and get stressed when separated.",
+  "Venus is the only planet that spins clockwise.",
+  "A teaspoon of neutron star would weigh about a billion tonnes.",
+  "Pineapples take about two years to grow.",
+  "The dot over a lowercase 'i' or 'j' is called a tittle.",
+  "Sloths can hold their breath longer than dolphins can.",
+  "Norway once knighted a penguin.",
+  "An octopus can taste with its arms.",
+  "The inventor of the frisbee was turned into a frisbee after he died.",
 ];
 
 const fmt = (date, opts, tz) =>
@@ -42,6 +72,8 @@ function tzAbbr(date, tz) {
 export const home = {
   _timer: null, _wxTimer: null, _stkTimer: null, _carTimer: null, _carIdx: 0,
   _tkRAF: null, _tkOff: 0, _carKey: null,
+  _feed: [], _feedIdx: 0, _feedTimer: null, _newsTimer: null, _factsTimer: null,
+  _trkTimer: null, _news: [], _facts: [],
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -49,6 +81,8 @@ export const home = {
     this._clocks = cfg.world_clocks || [];
     this._carIdx = 0;
     this._carKey = null;
+    this._feed = [];
+    this._feedIdx = 0;
 
     el.innerHTML = `
       <div class="module home">
@@ -57,14 +91,21 @@ export const home = {
           <div class="big-date" id="big-date"></div>
         </div>
 
-        <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
+        <div class="news-card" id="news"><span class="muted">Loading news…</span></div>
 
-        <div class="launcher">
-          ${APPS.map((a) => `
-            <button class="app-tile" data-route="${a.route}">
-              <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
-            </button>`).join("")}
+        <div class="app-carousel">
+          <button class="car-arrow" id="apps-prev" aria-label="previous">‹</button>
+          <div class="car-track" id="apps-track">
+            ${APPS.map((a) => `
+              <button class="app-tile" data-route="${a.route}">
+                <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
+                <span class="tile-badge" hidden>!</span>
+              </button>`).join("")}
+          </div>
+          <button class="car-arrow" id="apps-next" aria-label="next">›</button>
         </div>
+
+        <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
 
         <div class="carousel-card"><div class="carousel" id="carousel"></div></div>
 
@@ -72,8 +113,14 @@ export const home = {
           <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
+    // App carousel: tiles use a movement-thresholded tap so swiping scrolls and a tap opens.
     el.querySelectorAll(".app-tile").forEach((b) =>
-      ctx.tap(b, () => ctx.go(b.dataset.route)));
+      ctx.tapRow(b, () => ctx.go(b.dataset.route)));
+    const track = el.querySelector("#apps-track");
+    ctx.tap(el.querySelector("#apps-prev"),
+      () => track.scrollBy({ left: -track.clientWidth * 0.7, behavior: "smooth" }));
+    ctx.tap(el.querySelector("#apps-next"),
+      () => track.scrollBy({ left: track.clientWidth * 0.7, behavior: "smooth" }));
 
     const bigTime = el.querySelector("#big-time");
     const bigDate = el.querySelector("#big-date");
@@ -90,6 +137,49 @@ export const home = {
     this._carTimer = setInterval(() => {
       this._carIdx = (this._carIdx + 1) % Math.max(1, this._clocks.length);
     }, 5000);
+
+    // --- News + facts feed (BBC UK+World mix + facts API; bundled facts = offline fallback) ---
+    this._news = [];
+    this._facts = [...FACTS].sort(() => Math.random() - 0.5);  // fallback until the API responds
+    this._rebuildFeed();
+    this._renderFeed(el);
+    this._feedTimer = setInterval(() => {
+      this._feedIdx = (this._feedIdx + 1) % Math.max(1, this._feed.length);
+      this._renderFeed(el);
+    }, 9000);
+    const loadNews = async () => {
+      try {
+        const env = await ctx.api("/api/news");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        this._news = ((env.data && env.data.headlines) || []).map((h) => h.title);
+        this._rebuildFeed();
+      } catch (e) { /* keep current feed */ }
+    };
+    const loadFacts = async () => {
+      try {
+        const env = await ctx.api("/api/facts");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        const f = (env.data && env.data.facts) || [];
+        if (f.length) { this._facts = f; this._rebuildFeed(); }  // else keep bundled fallback
+      } catch (e) { /* keep bundled fallback */ }
+    };
+    await Promise.all([loadNews(), loadFacts()]);
+    if (ctx.isCurrent && !ctx.isCurrent()) return;
+    this._newsTimer = setInterval(loadNews, 900000);    // 15 min
+    this._factsTimer = setInterval(loadFacts, 3600000); // 1 h
+
+    // --- Tracker alert badge on the Tracker tile ---
+    const loadTrackers = async () => {
+      try {
+        const data = await ctx.api("/api/trackers");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        const tile = el.querySelector('.app-tile[data-route="tracker"] .tile-badge');
+        if (tile) tile.hidden = !(data && data.alert);
+      } catch (e) { /* ignore */ }
+    };
+    await loadTrackers();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;
+    this._trkTimer = setInterval(loadTrackers, 60000);
 
     const loadWeather = async () => {
       try {
@@ -123,6 +213,30 @@ export const home = {
     if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._stkTimer = setInterval(loadStocks, (cfg.refresh?.stocks || 300) * 1000);
     this._startTicker(el);
+  },
+
+  _rebuildFeed() {
+    // Interleave news, fact, news, fact … so headlines lead but facts still appear.
+    const news = (this._news || []).map((t) => ({ kind: "news", text: t }));
+    const facts = (this._facts || []).map((t) => ({ kind: "fact", text: t }));
+    const merged = [];
+    const n = Math.max(news.length, facts.length);
+    for (let i = 0; i < n; i++) {
+      if (i < news.length) merged.push(news[i]);
+      if (i < facts.length) merged.push(facts[i]);
+    }
+    this._feed = merged.length ? merged : facts;
+    if (this._feedIdx >= this._feed.length) this._feedIdx = 0;
+  },
+
+  _renderFeed(el) {
+    const box = el.querySelector("#news");
+    if (!box || !this._feed.length) return;
+    const item = this._feed[this._feedIdx % this._feed.length];
+    const isNews = item.kind === "news";
+    box.innerHTML = `
+      <div class="news-tag ${isNews ? "news" : "fact"}">${isNews ? "📰 Sky News" : "💡 Did you know"}</div>
+      <div class="news-text">${esc(item.text)}</div>`;
   },
 
   // JS-driven marquee (CSS keyframe animation doesn't tick reliably under WPE/cog).
@@ -178,6 +292,10 @@ export const home = {
     clearInterval(this._wxTimer);
     clearInterval(this._stkTimer);
     clearInterval(this._carTimer);
+    clearInterval(this._feedTimer);
+    clearInterval(this._newsTimer);
+    clearInterval(this._factsTimer);
+    clearInterval(this._trkTimer);
     cancelAnimationFrame(this._tkRAF);
   },
 };
