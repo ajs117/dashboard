@@ -84,6 +84,7 @@ html, body {
 .app-tile .tile-badge { position: absolute; top: 8px; right: 10px; background: var(--bad);
   color: #fff; min-width: 20px; height: 20px; border-radius: 10px; font-size: 13px;
   font-weight: 800; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
+.app-tile .tile-badge[hidden] { display: none; }   /* beat the display:flex above */
 
 /* Weather */
 .weather-card { grid-column: 2; grid-row: 1 / span 3; background: var(--panel);
@@ -106,7 +107,7 @@ html, body {
 .wx-day .hi { font-weight: 700; }
 
 /* World-clock carousel (full width) */
-.carousel-card { grid-column: 1 / span 2; grid-row: 3; background: var(--panel);
+.carousel-card { grid-column: 1 / span 2; grid-row: 4; background: var(--panel);
   border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px;
   display: flex; align-items: center; overflow: hidden; }
 .carousel { display: flex; gap: 12px; width: 100%; }
@@ -118,7 +119,7 @@ html, body {
 .wc .d { font-size: 12px; color: var(--muted); }
 
 /* Stocks ticker (full-width scrolling bar) */
-.ticker-bar { grid-column: 1 / span 2; grid-row: 4; background: var(--panel);
+.ticker-bar { grid-column: 1 / span 2; grid-row: 5; background: var(--panel);
   border: 1px solid var(--line); border-radius: 12px; height: 46px;
   display: flex; align-items: center; overflow: hidden; }
 .ticker { display: inline-flex; white-space: nowrap; will-change: transform; }

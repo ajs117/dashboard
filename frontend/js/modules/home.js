@@ -235,7 +235,7 @@ export const home = {
     const item = this._feed[this._feedIdx % this._feed.length];
     const isNews = item.kind === "news";
     box.innerHTML = `
-      <div class="news-tag ${isNews ? "news" : "fact"}">${isNews ? "📰 Sky News" : "💡 Did you know"}</div>
+      <div class="news-tag ${isNews ? "news" : "fact"}">${isNews ? "📰 BBC News" : "💡 Did you know"}</div>
       <div class="news-text">${esc(item.text)}</div>`;
   },
 
