@@ -201,6 +201,7 @@ export const home = {
     const loadStocks = async () => {
       try {
         const env = await ctx.api("/api/stocks");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away mid-fetch
         const tk = el.querySelector("#ticker");
         if (!tk) return;
         renderTicker(tk, env.data, env.stale);
