@@ -7,6 +7,7 @@ Mutating endpoints require the admin token via the X-Admin-Token header.
 """
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -16,10 +17,22 @@ from .. import config
 
 router = APIRouter(prefix="/api", tags=["config"])
 
+# Placeholder tokens shipped in the example/template config — never accept these.
+_INSECURE_TOKENS = {"", "change-me", "change-me-to-something-random"}
+
 
 def _require_admin(token: str | None) -> None:
+    # If we're running on the committed example (no real config.yaml), refuse all
+    # mutations — the example's admin_token is public, so honouring it is unsafe.
+    if config.is_fallback():
+        raise HTTPException(status_code=503,
+                            detail="Config is read-only: no config.yaml present on this device")
     expected = config.get().get("admin_token")
-    if not expected or token != expected:
+    if not expected or expected in _INSECURE_TOKENS:
+        raise HTTPException(status_code=503,
+                            detail="Refusing writes: admin_token is unset or a default placeholder")
+    # Constant-time compare to avoid leaking the token via response timing.
+    if not hmac.compare_digest(str(token or ""), str(expected)):
         raise HTTPException(status_code=403, detail="Invalid or missing admin token")
 
 

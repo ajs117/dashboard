@@ -55,32 +55,30 @@ def km_per_pixel(lat: float, z: int) -> float:
     return 156543.03392 * math.cos(math.radians(lat)) / (2 ** z) / 1000.0
 
 
-async def _sample_area(host: str, path: str, lat: float, lon: float) -> dict[str, Any]:
-    """Sample a box around the location in one frame.
+_UNKNOWN = {"center_alpha": None, "nearest_km": None, "center_level": "unknown"}
 
-    Returns center precip + nearest-rain distance (km) within the search radius.
-    """
+
+def _scan(content: bytes, lat: float, px: int, py: int) -> dict[str, Any]:
+    """CPU-bound: decode the tile and scan the box. Runs in a worker thread."""
     from PIL import Image  # lazy import so the app starts without Pillow
 
-    tx, ty, px, py = latlon_to_tile(lat, lon, _AREA_ZOOM)
-    url = f"{host}{path}/256/{_AREA_ZOOM}/{tx}/{ty}/4/1_0.png"
     try:
-        r = await client().get(url)
-        r.raise_for_status()
-        img = Image.open(io.BytesIO(r.content)).convert("RGBA")
+        img = Image.open(io.BytesIO(content)).convert("RGBA")
     except Exception:  # noqa: BLE001
-        return {"center_alpha": None, "nearest_km": None, "center_level": "unknown"}
-
+        return dict(_UNKNOWN)
+    pix = img.load()  # one pixel-access object beats thousands of getpixel() calls
     kmpp = km_per_pixel(lat, _AREA_ZOOM)
     center_alpha = 0
     nearest_px = None
     for dy in range(-_BOX_PX, _BOX_PX + 1):
+        y = py + dy
+        if not (0 <= y <= 255):
+            continue
         for dx in range(-_BOX_PX, _BOX_PX + 1):
-            x, y = px + dx, py + dy
-            if not (0 <= x <= 255 and 0 <= y <= 255):
+            x = px + dx
+            if not (0 <= x <= 255):
                 continue
-            p = img.getpixel((x, y))
-            a = p[3] if len(p) > 3 else 255
+            a = pix[x, y][3]
             if abs(dx) <= 1 and abs(dy) <= 1:
                 center_alpha = max(center_alpha, a)
             if a >= _RAIN_ALPHA:
@@ -92,6 +90,24 @@ async def _sample_area(host: str, path: str, lat: float, lon: float) -> dict[str
         "center_level": classify(center_alpha)[0],
         "nearest_km": round(nearest_px * kmpp, 1) if nearest_px is not None else None,
     }
+
+
+async def _sample_area(host: str, path: str, lat: float, lon: float) -> dict[str, Any]:
+    """Fetch one frame's tile and sample a box around the location.
+
+    Returns center precip + nearest-rain distance (km) within the search radius. The
+    image decode + pixel scan are CPU-bound, so they run off the event loop (important
+    on a single-worker Pi Zero 2W).
+    """
+    tx, ty, px, py = latlon_to_tile(lat, lon, _AREA_ZOOM)
+    url = f"{host}{path}/256/{_AREA_ZOOM}/{tx}/{ty}/4/1_0.png"
+    try:
+        r = await client().get(url)
+        r.raise_for_status()
+        content = r.content
+    except Exception:  # noqa: BLE001
+        return dict(_UNKNOWN)
+    return await asyncio.to_thread(_scan, content, lat, px, py)
 
 
 def build_forecast(series: list[dict], now: float) -> dict[str, Any]:

@@ -45,18 +45,24 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
     current = raw.get("current", {})
     cur_code = current.get("weather_code")
     daily = raw.get("daily", {})
+
+    def at(key: str, i: int):
+        """Index a daily array safely: a partially-missing field shouldn't crash the day."""
+        arr = daily.get(key) or []
+        return arr[i] if i < len(arr) else None
+
     days = []
     for i, date in enumerate(daily.get("time", [])):
-        code = daily.get("weather_code", [None])[i]
+        code = at("weather_code", i)
         days.append({
             "date": date,
             "code": code,
             "text": WMO.get(code, "—"),
-            "tmax": daily.get("temperature_2m_max", [None])[i],
-            "tmin": daily.get("temperature_2m_min", [None])[i],
-            "precip_prob": daily.get("precipitation_probability_max", [None])[i],
-            "sunrise": daily.get("sunrise", [None])[i],
-            "sunset": daily.get("sunset", [None])[i],
+            "tmax": at("temperature_2m_max", i),
+            "tmin": at("temperature_2m_min", i),
+            "precip_prob": at("precipitation_probability_max", i),
+            "sunrise": at("sunrise", i),
+            "sunset": at("sunset", i),
         })
 
     today = days[0] if days else {}

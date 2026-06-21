@@ -7,8 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
+def _make_client(tmp_path, monkeypatch, admin_token: str):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(
         "location: {label: Test, lat: 1.0, lon: 2.0, timezone: UTC}\n"
@@ -18,7 +17,7 @@ def client(tmp_path, monkeypatch):
         "world_clocks: []\n"
         "refresh: {weather: 600}\n"
         "cache: {weather: 600}\n"
-        "admin_token: hunter2\n",
+        f"admin_token: {admin_token}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DASHBOARD_CONFIG", str(cfg_file))
@@ -26,7 +25,12 @@ def client(tmp_path, monkeypatch):
     importlib.reload(config_mod)
     import app.main as main_mod
     importlib.reload(main_mod)
-    with TestClient(main_mod.app) as c:
+    return TestClient(main_mod.app)
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    with _make_client(tmp_path, monkeypatch, "hunter2") as c:
         yield c
 
 
@@ -49,6 +53,27 @@ def test_config_hides_token(client):
 def test_location_requires_token(client):
     r = client.post("/api/location", json={"lat": 5.0, "lon": 6.0})
     assert r.status_code == 403
+
+
+def test_location_wrong_token_rejected(client):
+    r = client.post(
+        "/api/location",
+        json={"lat": 5.0, "lon": 6.0},
+        headers={"X-Admin-Token": "nope"},
+    )
+    assert r.status_code == 403
+
+
+def test_placeholder_token_blocks_writes(tmp_path, monkeypatch):
+    # A config that still has the example placeholder must refuse writes (503),
+    # even when the caller presents that placeholder.
+    with _make_client(tmp_path, monkeypatch, "change-me") as c:
+        r = c.post(
+            "/api/location",
+            json={"lat": 5.0, "lon": 6.0},
+            headers={"X-Admin-Token": "change-me"},
+        )
+        assert r.status_code == 503
 
 
 def test_location_update_with_token(client):

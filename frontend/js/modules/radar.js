@@ -1,8 +1,9 @@
 // Radar: dark base map showing the CURRENT frame + rain-near-you prediction.
 /* global L */
+import { esc } from "../util.js";
 
 export const radar = {
-  _map: null, _layer: null, _refresh: null,
+  _map: null, _layer: null, _refresh: null, _fade: null,
 
   async mount(el, ctx) {
     el.innerHTML = `
@@ -44,20 +45,28 @@ export const radar = {
       }
     };
     await load();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._refresh = setInterval(load, (ctx.config?.refresh?.radar || 120) * 1000);
   },
 
   _showCurrent(data) {
+    if (!this._map || !data) return;
     const frames = data.frames || [];
     if (!frames.length) return;
-    const idx = Math.max(0, (data.past_count || frames.length) - 1);
+    // Prefer the last *past* frame; fall back to the last frame, always within bounds.
+    const idx = data.past_count != null
+      ? Math.min(frames.length - 1, Math.max(0, data.past_count - 1))
+      : frames.length - 1;
     const f = frames[idx];
     const url = `${data.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`;
     const layer = L.tileLayer(url, { opacity: 0.8, maxNativeZoom: 7, maxZoom: 18, zIndex: 5 });
     layer.addTo(this._map);
     if (this._layer) {
       const old = this._layer;
-      setTimeout(() => this._map.removeLayer(old), 300);
+      // crossfade: drop the old layer shortly after; cancel on unmount so it can't
+      // fire against a torn-down map.
+      clearTimeout(this._fade);
+      this._fade = setTimeout(() => { if (this._map) this._map.removeLayer(old); }, 300);
     }
     this._layer = layer;
   },
@@ -71,12 +80,13 @@ export const radar = {
   },
 
   _renderPanel(el, fc, stale) {
+    if (!fc) { el.innerHTML = `<span class="muted">Forecast unavailable</span>`; return; }
     const km = fc.nearest_km;
     let head, line, cls;
     switch (fc.status) {
       case "raining":
         cls = "r-now"; head = `🌧️ Raining now`;
-        line = `<span class="lvl">${fc.level}</span>`;
+        line = `<span class="lvl">${esc(fc.level)}</span>`;
         break;
       case "approaching":
         cls = "r-soon"; head = `🌧️ Rain approaching`;
@@ -97,7 +107,7 @@ export const radar = {
       <div class="rain-now">${head}</div>
       <div class="rain-next">${line}</div>
       ${this._spark(fc.series)}
-      <div class="rain-foot">${fc.location || ""}${stale ? " · delayed" : ""}</div>`;
+      <div class="rain-foot">${esc(fc.location || "")}${stale ? " · delayed" : ""}</div>`;
   },
 
   _spark(series) {
@@ -114,6 +124,7 @@ export const radar = {
 
   unmount() {
     clearInterval(this._refresh);
+    clearTimeout(this._fade);
     if (this._map) { this._map.remove(); this._map = null; }
     this._layer = null;
   },

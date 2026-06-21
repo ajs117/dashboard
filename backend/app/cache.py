@@ -23,10 +23,25 @@ class _Entry:
     error: str | None = None
 
 
+# Bound the store so per-callsign route / per-hex photo keys can't grow without limit
+# over weeks of uptime on a 512MB Pi. The handful of fixed keys (weather/radar/...) plus
+# recently-seen flights fit comfortably; the oldest entries are evicted past this.
+_MAX_ENTRIES = 200
+
+
 class TTLCache:
     def __init__(self) -> None:
         self._store: dict[str, _Entry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+
+    def _evict_if_needed(self) -> None:
+        if len(self._store) <= _MAX_ENTRIES:
+            return
+        # Drop oldest-fetched entries (and their now-orphaned locks).
+        overflow = len(self._store) - _MAX_ENTRIES
+        for k in sorted(self._store, key=lambda k: self._store[k].fetched_at)[:overflow]:
+            self._store.pop(k, None)
+            self._locks.pop(k, None)
 
     def _lock_for(self, key: str) -> asyncio.Lock:
         lock = self._locks.get(key)
@@ -56,6 +71,7 @@ class TTLCache:
                 value = await coro()
                 entry = _Entry(value=value, fetched_at=time.time())
                 self._store[key] = entry
+                self._evict_if_needed()
                 return self._wrap(entry, fresh=True)
             except Exception as exc:  # noqa: BLE001 - surface as stale, don't crash UI
                 if entry is not None:

@@ -1,6 +1,7 @@
 // Aircraft: dark Leaflet map, nearest list, + selected-plane "where to look" panel.
 // By default it auto-follows the closest airborne aircraft; tapping a row pins that one.
 /* global L */
+import { esc, safeHttpUrl } from "../util.js";
 
 // Plane silhouette drawn pointing NORTH (up), so rotate(heading) aims it correctly.
 const PLANE_PATH =
@@ -55,6 +56,7 @@ export const aircraft = {
       }
     };
     await load();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     // Slow refresh (planes don't need per-second updates; respects the 1 req/s upstream).
     this._timer = setInterval(load, (ctx.config?.refresh?.aircraft || 20) * 1000);
   },
@@ -64,6 +66,20 @@ export const aircraft = {
     if (!list.length) return null;
     const airborne = list.find((a) => (a.altitude || 0) > 0);
     return (airborne || list[0]).hex;
+  },
+
+  // Follow the closest, but only switch to a new aircraft if it's clearly nearer than the
+  // one we're already on — hysteresis stops the selection flip-flopping (and reloading
+  // route/photo) every refresh when two planes trade places for "closest".
+  _followTarget(data) {
+    const closest = this._pickClosest(data);
+    if (!closest) return null;
+    const cur = (data.aircraft || []).find((a) => a.hex === this._selected);
+    if (!cur) return closest;
+    const closestAc = (data.aircraft || []).find((a) => a.hex === closest);
+    const curD = cur.distance_mi ?? Infinity;
+    const closeD = closestAc?.distance_mi ?? Infinity;
+    return closeD < curD * 0.85 ? closest : this._selected;
   },
 
   // ✈ SVG marker; selected/nearest plane is yellow, others light grey.
@@ -79,6 +95,10 @@ export const aircraft = {
     const data = this._data;
     const list = el.querySelector("#ac-list");
     if (!list) return;
+    if (!data || !Array.isArray(data.aircraft)) {     // null/error envelope -> don't crash
+      list.innerHTML = `<div class="muted" style="padding:16px">No aircraft data</div>`;
+      return;
+    }
     const seen = new Set();
 
     for (const ac of data.aircraft) {
@@ -97,23 +117,27 @@ export const aircraft = {
     }
 
     list.innerHTML = data.aircraft.map((ac) => `
-      <div class="ac-row ${ac.hex === this._selected ? "sel" : ""}" data-hex="${ac.hex}">
-        <div><div class="cs">${ac.callsign || ac.hex}</div>
-          <div class="meta">${ac.type || "?"} · ${ac.compass || ""} ${ac.elevation || 0}°↑</div></div>
+      <div class="ac-row ${ac.hex === this._selected ? "sel" : ""}" data-hex="${esc(ac.hex)}">
+        <div><div class="cs">${esc(ac.callsign || ac.hex)}</div>
+          <div class="meta">${esc(ac.type || "?")} · ${esc(ac.compass || "")} ${ac.elevation || 0}°↑</div></div>
         <div style="text-align:right">
-          <div>${ac.distance_mi} mi</div>
+          <div>${ac.distance_mi ?? "—"} mi</div>
           <div class="meta">${ac.altitude != null ? ac.altitude + " ft" : ""}</div></div>
       </div>`).join("") ||
       `<div class="muted" style="padding:16px">No aircraft in range</div>`;
 
+    // Rows live in a scrollable list -> movement-thresholded tap so a drag still scrolls.
     list.querySelectorAll(".ac-row").forEach((row) =>
-      row.addEventListener("click", () => {
-        this._follow = false; this._select(el, ctx, row.dataset.hex);
-      }));
+      ctx.tapRow(row, () => { this._follow = false; this._select(el, ctx, row.dataset.hex); }));
 
-    // Decide which plane to show: follow the closest, else keep the pinned one.
-    let target = this._follow ? this._pickClosest(data) : this._selected;
-    if (!data.aircraft.some((a) => a.hex === target)) target = this._pickClosest(data);
+    // Decide which plane to show: keep a still-present pinned plane, else auto-follow.
+    let target;
+    if (!this._follow && data.aircraft.some((a) => a.hex === this._selected)) {
+      target = this._selected;                  // pinned and still in range
+    } else {
+      this._follow = true;                      // pinned plane gone, or already following
+      target = this._followTarget(data);
+    }
 
     if (!target) {
       this._selected = null;
@@ -163,11 +187,11 @@ export const aircraft = {
     sky.innerHTML = `
       <div class="look-grid">
         <div class="look-item"><div class="lk">Look</div>
-          <div class="lv">${ac.compass || "?"} <span class="u">${ac.azimuth ?? "?"}°</span></div></div>
+          <div class="lv">${esc(ac.compass || "?")} <span class="u">${ac.azimuth ?? "?"}°</span></div></div>
         <div class="look-item"><div class="lk">Up</div>
           <div class="lv">${ac.elevation ?? 0}<span class="u">°</span></div></div>
         <div class="look-item"><div class="lk">Distance</div>
-          <div class="lv">${ac.distance_mi}<span class="u"> mi</span></div></div>
+          <div class="lv">${ac.distance_mi ?? "—"}<span class="u"> mi</span></div></div>
       </div>`;
   },
 
@@ -176,7 +200,7 @@ export const aircraft = {
     // e.g. callsign "GGBVN" vs reg "G-GBVN") — compare alphanumerics only.
     const regShown = ac.registration && _norm(ac.registration) !== _norm(ac.callsign);
     return `
-      <div class="k">Aircraft</div><div>${ac.type || "—"}${regShown ? " · " + ac.registration : ""}</div>
+      <div class="k">Aircraft</div><div>${esc(ac.type || "—")}${regShown ? " · " + esc(ac.registration) : ""}</div>
       <div class="k">Altitude</div><div>${ac.altitude != null ? ac.altitude.toLocaleString() + " ft" : "—"}</div>
       <div class="k">Speed</div><div>${ac.speed != null ? Math.round(ac.speed) + " kt" : "—"}</div>
       <div class="k">Heading</div><div>${ac.heading != null ? Math.round(ac.heading) + "°" : "—"}</div>`;
@@ -194,7 +218,7 @@ export const aircraft = {
     this._renderLook(sky, ac);
     d.innerHTML = `
       <div class="ac-flight">
-        <span class="cs">${ac.callsign || ac.hex}</span>
+        <span class="cs">${esc(ac.callsign || ac.hex)}</span>
         <span class="airline" id="ac-airline"></span>
       </div>
       <div class="ac-route" id="ac-route"><span class="muted">looking up route…</span></div>
@@ -218,10 +242,10 @@ export const aircraft = {
       if (d && (d.origin || d.destination)) {
         const o = d.origin || {}, ds = d.destination || {};
         route.innerHTML = `
-          <span class="ap"><b>${o.iata || "???"}</b><small>${o.city || o.name || ""}</small></span>
+          <span class="ap"><b>${esc(o.iata || "???")}</b><small>${esc(o.city || o.name || "")}</small></span>
           <span class="arrow">✈</span>
-          <span class="ap"><b>${ds.iata || "???"}</b><small>${ds.city || ds.name || ""}</small></span>`;
-        if (al) al.textContent = d.airline || "";
+          <span class="ap"><b>${esc(ds.iata || "???")}</b><small>${esc(ds.city || ds.name || "")}</small></span>`;
+        if (al) al.textContent = d.airline || "";   // textContent -> already safe
       } else {
         route.innerHTML = `<span class="muted">Route not available</span>`;
       }
@@ -239,9 +263,10 @@ export const aircraft = {
       const env = await ctx.api(`/api/aircraft/${hex}/photo`);
       if (hex !== this._selected) return;
       const p = env.data;
-      if (p && p.thumbnail) {
-        ph.style.backgroundImage = `url("${p.thumbnail}")`;
-        ph.innerHTML = `<div class="credit">© ${p.photographer || "Planespotters"}</div>`;
+      const url = p && safeHttpUrl(p.thumbnail);   // reject non-http(s) / CSS-breaking URLs
+      if (url) {
+        ph.style.backgroundImage = `url("${url}")`;
+        ph.innerHTML = `<div class="credit">© ${esc(p.photographer || "Planespotters")}</div>`;
       } else {
         ph.innerHTML = `<span class="muted">No photo available</span>`;
       }

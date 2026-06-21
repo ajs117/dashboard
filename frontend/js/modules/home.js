@@ -1,4 +1,5 @@
 // Home: clock, weather (dew point + wind), world-clock carousel, stocks ticker, launcher.
+import { esc } from "../util.js";
 
 const WMO_EMOJI = {
   0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️",
@@ -40,12 +41,14 @@ function tzAbbr(date, tz) {
 
 export const home = {
   _timer: null, _wxTimer: null, _stkTimer: null, _carTimer: null, _carIdx: 0,
-  _tkRAF: null, _tkOff: 0,
+  _tkRAF: null, _tkOff: 0, _carKey: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
     const localTz = cfg.location?.timezone || undefined;
     this._clocks = cfg.world_clocks || [];
+    this._carIdx = 0;
+    this._carKey = null;
 
     el.innerHTML = `
       <div class="module home">
@@ -102,6 +105,7 @@ export const home = {
       }
     };
     await loadWeather();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._wxTimer = setInterval(loadWeather, (cfg.refresh?.weather || 600) * 1000);
 
     const loadStocks = async () => {
@@ -116,6 +120,7 @@ export const home = {
       }
     };
     await loadStocks();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._stkTimer = setInterval(loadStocks, (cfg.refresh?.stocks || 300) * 1000);
     this._startTicker(el);
   },
@@ -130,9 +135,13 @@ export const home = {
       const tk = el.querySelector("#ticker");
       if (!tk) return;                       // view replaced -> stop
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      const half = (tk.scrollWidth / 2) || 1;
+      // Wrap on exactly one sequence's width (not scrollWidth/2, which the optional
+      // "delayed" badge would throw off and cause a visible jump).
+      const seqEl = tk.querySelector(".tk-seq");
+      const span = seqEl ? seqEl.offsetWidth : (tk.scrollWidth / 2);
+      const wrap = span || 1;
       this._tkOff -= speed * dt;
-      if (this._tkOff <= -half) this._tkOff += half;
+      if (this._tkOff <= -wrap) this._tkOff += wrap;
       tk.style.transform = `translateX(${this._tkOff}px)`;
       this._tkRAF = requestAnimationFrame(step);
     };
@@ -140,9 +149,15 @@ export const home = {
   },
 
   _renderCarousel(el) {
-    const car = el.querySelector("#carousel");
-    if (!car || !this._clocks.length) return;
+    if (!this._clocks.length) return;
     const now = new Date();
+    // The clock tick calls this every second, but the cards only change when the
+    // visible set rotates or the minute rolls over — skip the rebuild otherwise.
+    const key = this._carIdx + ":" + now.getHours() + ":" + now.getMinutes();
+    if (key === this._carKey) return;
+    this._carKey = key;
+    const car = el.querySelector("#carousel");
+    if (!car) return;
     const n = this._clocks.length;
     const visible = Math.min(3, n);
     let html = "";
@@ -150,7 +165,7 @@ export const home = {
       const c = this._clocks[(this._carIdx + k) % n];
       html += `
         <div class="wc">
-          <div class="city">${c.label} <span class="tz">${tzAbbr(now, c.tz)}</span></div>
+          <div class="city">${esc(c.label)} <span class="tz">${esc(tzAbbr(now, c.tz))}</span></div>
           <div class="t">${fmt(now, { hour: "2-digit", minute: "2-digit", hour12: false }, c.tz)}</div>
           <div class="d">${fmt(now, { weekday: "short", day: "numeric", month: "short" }, c.tz)}</div>
         </div>`;
@@ -168,59 +183,63 @@ export const home = {
 };
 
 function renderWeather(el, w) {
+  if (!w) { el.innerHTML = `<div class="err">Weather unavailable</div>`; return; }
   const c = w.current || {};
   const unit = w.units?.temperature || "°";
-  const windUnit = w.units?.wind || "";
+  const windUnit = esc(w.units?.wind || "");
   const emoji = WMO_EMOJI[c.code] ?? "•";
   const moon = w.moon || {};
   const moonIco = MOON_EMOJI[moon.index] ?? "🌙";
   const days = (w.daily || []).slice(1, 5);
+  const t = (x) => (x == null || Number.isNaN(x) ? "—" : Math.round(x) + unit);
   const gust = c.wind_gust != null ? ` (gust ${Math.round(c.wind_gust)})` : "";
 
   el.innerHTML = `
     <div class="wx-now">
       <div style="font-size:60px">${emoji}</div>
       <div>
-        <div class="wx-temp">${Math.round(c.temperature)}${unit}</div>
-        <div class="wx-text">${c.text || ""} · ${w.label || ""}</div>
-        <div class="wx-sub">Feels ${Math.round(c.apparent)}${unit}</div>
+        <div class="wx-temp">${t(c.temperature)}</div>
+        <div class="wx-text">${esc(c.text || "")} · ${esc(w.label || "")}</div>
+        <div class="wx-sub">Feels ${t(c.apparent)}</div>
       </div>
     </div>
     <div class="wx-stats">
-      <div class="item"><span class="k">Dew point</span><span class="v">${Math.round(c.dew_point)}${unit}</span></div>
+      <div class="item"><span class="k">Dew point</span><span class="v">${t(c.dew_point)}</span></div>
       <div class="item"><span class="k">Humidity</span><span class="v">${c.humidity != null ? Math.round(c.humidity) + "%" : "—"}</span></div>
-      <div class="item" style="flex:1.7"><span class="k">Wind</span><span class="v">${Math.round(c.wind_speed)} ${windUnit} ${c.wind_compass || ""}${gust}</span></div>
+      <div class="item" style="flex:1.7"><span class="k">Wind</span><span class="v">${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} ${windUnit} ${esc(c.wind_compass || "")}${gust}</span></div>
     </div>
     <div class="wx-astro">
       <div class="item">🌅 ${fmtClock(w.sun?.sunrise)}</div>
       <div class="item">🌇 ${fmtClock(w.sun?.sunset)}</div>
-      <div class="item">${moonIco} ${moon.name || ""} ${Math.round((moon.illumination || 0) * 100)}%</div>
+      <div class="item">${moonIco} ${esc(moon.name || "")} ${Math.round((moon.illumination || 0) * 100)}%</div>
     </div>
     <div class="wx-forecast">
       ${days.map((d) => `
         <div class="wx-day">
-          <div class="d">${dayName(d.date)}</div>
+          <div class="d">${esc(dayName(d.date))}</div>
           <div style="font-size:22px">${forecastIcon(d.code, d.precip_prob)}</div>
-          <div class="hi">${Math.round(d.tmax)}°</div>
-          <div class="muted">${Math.round(d.tmin)}°</div>
+          <div class="hi">${d.tmax != null ? Math.round(d.tmax) + "°" : "—"}</div>
+          <div class="muted">${d.tmin != null ? Math.round(d.tmin) + "°" : "—"}</div>
           ${d.precip_prob != null ? `<div class="muted">💧${d.precip_prob}%</div>` : ""}
         </div>`).join("")}
     </div>`;
 }
 
 function renderTicker(el, data, stale) {
-  const quotes = (data.quotes || []).filter((q) => q.ok);
+  const quotes = ((data && data.quotes) || []).filter((q) => q.ok);
   if (!quotes.length) { el.innerHTML = `<span class="muted">Markets unavailable</span>`; return; }
   const item = (q) => {
     const up = (q.pct ?? 0) >= 0;
     const arrow = up ? "▲" : "▼";
     return `<span class="tk">
-      <span class="nm">${q.label}</span>
-      <span class="px">${q.price?.toLocaleString()}</span>
+      <span class="nm">${esc(q.label)}</span>
+      <span class="px">${q.price != null ? q.price.toLocaleString() : "—"}</span>
       <span class="${up ? "up" : "down"}">${arrow} ${Math.abs(q.pct ?? 0).toFixed(2)}%</span>
     </span>`;
   };
-  // Duplicate the sequence so the marquee loops seamlessly (-50% keyframe).
+  // Two identical sequences so the marquee loops seamlessly; the rAF wraps on one
+  // sequence's measured width (.tk-seq), so the optional "delayed" badge doesn't skew it.
   const seq = quotes.map(item).join("");
-  el.innerHTML = seq + seq + (stale ? `<span class="tk muted">delayed</span>` : "");
+  el.innerHTML = `<span class="tk-seq">${seq}</span><span class="tk-seq">${seq}</span>`
+    + (stale ? `<span class="tk muted">delayed</span>` : "");
 }

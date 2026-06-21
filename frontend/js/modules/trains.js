@@ -1,4 +1,5 @@
 // Trains: National Rail live departure board, styled like a station CIS display.
+import { esc } from "../util.js";
 
 function expClass(etd, cancelled) {
   if (cancelled) return "exp-cancelled";
@@ -28,26 +29,29 @@ export const trains = {
       }
     };
     await load();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._timer = setInterval(load, (cfg.refresh?.trains || 30) * 1000);
   },
 
   _render(el, d, cfg) {
+    d = d || {};
     const services = d.services || [];
     const dest = (cfg.trains?.destination_crs || "").trim();
+    // NRCC messages are free-text operator strings -> escape (highest XSS risk here).
     const messages = (d.messages || [])
-      .map((m) => `<div class="nrcc">⚠️ ${m}</div>`).join("");
+      .map((m) => `<div class="nrcc">⚠️ ${esc(m)}</div>`).join("");
 
     const rows = services.map((s) => {
-      const calling = (s.calling_points || []).map((c) => c.name).slice(0, 8).join(" • ");
-      const exp = s.cancelled ? "Cancelled" : (s.etd || "");
+      const calling = (s.calling_points || []).map((c) => esc(c.name)).slice(0, 8).join(" • ");
+      const exp = s.cancelled ? "Cancelled" : esc(s.etd || "");
       return `
         <div class="brow ${s.cancelled ? "is-cancelled" : ""}">
-          <div class="b-time">${s.std || ""}</div>
+          <div class="b-time">${esc(s.std || "")}</div>
           <div class="b-dest">
-            <div class="dst">${s.destination || "—"}</div>
-            <div class="calling">${calling ? "Calling at: " + calling : (s.operator || "")}</div>
+            <div class="dst">${esc(s.destination || "—")}</div>
+            <div class="calling">${calling ? "Calling at: " + calling : esc(s.operator || "")}</div>
           </div>
-          <div class="b-plat">${s.platform ? s.platform : "–"}</div>
+          <div class="b-plat">${s.platform ? esc(s.platform) : "–"}</div>
           <div class="b-exp ${expClass(s.etd, s.cancelled)}">${exp}</div>
         </div>`;
     }).join("");
@@ -55,8 +59,8 @@ export const trains = {
     el.innerHTML = `
       <div class="board-head">
         <div class="bh-title">
-          <span class="bh-station">${d.station || "Departures"}</span>
-          <span class="bh-crs">${d.crs || ""}${dest ? " → " + dest : ""}</span>
+          <span class="bh-station">${esc(d.station || "Departures")}</span>
+          <span class="bh-crs">${esc(d.crs || "")}${dest ? " → " + esc(dest) : ""}</span>
         </div>
         <div class="bh-clock" id="bh-clock"></div>
       </div>
