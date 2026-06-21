@@ -67,7 +67,7 @@ cache:
 refresh:
   weather: 600
   radar: 120
-  aircraft: 8
+  aircraft: 20
   trains: 30
   stocks: 300
   clock: 1

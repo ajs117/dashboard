@@ -144,9 +144,9 @@ html, body {
 .ac-row.sel { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
 .ac-row .cs { font-weight: 600; }
 .ac-row .meta { color: var(--muted); font-size: 12px; }
-.plane-icon { font-size: 22px; line-height: 26px; text-align: center; transform-origin: center;
-  color: #cfd8e3; text-shadow: 0 0 3px rgba(0,0,0,.95); }
-.plane-icon.sel { color: #ffd23a; font-size: 27px; text-shadow: 0 0 7px rgba(255,210,58,.95); }
+.plane-svg { display: block; transform-origin: 50% 50%; fill: #cfd8e3;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.95)); }
+.plane-svg.sel { fill: #ffd23a; filter: drop-shadow(0 0 5px rgba(255,210,58,.9)); }
 
 /* ============ RADAR ============ */
 .rain-panel {

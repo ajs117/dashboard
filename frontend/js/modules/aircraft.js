@@ -1,19 +1,27 @@
 // Aircraft: dark Leaflet map, nearest list, + selected-plane "where to look" panel.
+// By default it auto-follows the closest airborne aircraft; tapping a row pins that one.
 /* global L */
 
+// Plane silhouette drawn pointing NORTH (up), so rotate(heading) aims it correctly.
+const PLANE_PATH =
+  "M12 2 L13.2 9 L21 14 L21 15.5 L13.2 12.5 L13 18 L15.5 20 L15.5 21.2 " +
+  "L12 20 L8.5 21.2 L8.5 20 L11 18 L10.8 12.5 L3 15.5 L3 14 L10.8 9 Z";
+const _norm = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
 export const aircraft = {
-  _map: null, _timer: null, _markers: {}, _selected: null, _data: null,
+  _map: null, _timer: null, _markers: {}, _selected: null, _data: null, _follow: true,
 
   async mount(el, ctx) {
     this._markers = {};
     this._selected = null;
+    this._follow = true;
     el.innerHTML = `
       <div class="ac-layout">
         <div id="ac-map" class="full-map"></div>
         <div class="ac-side">
           <div class="ac-photo" id="ac-photo"><span class="muted">Select an aircraft</span></div>
           <div class="ac-sky" id="ac-sky"></div>
-          <div class="ac-detail" id="ac-detail"><div class="muted">No selection</div></div>
+          <div class="ac-detail" id="ac-detail"><div class="muted">No aircraft in range</div></div>
           <div class="ac-list" id="ac-list"></div>
         </div>
       </div>`;
@@ -25,7 +33,6 @@ export const aircraft = {
     const map = L.map("ac-map", { attributionControl: false, zoomControl: false })
       .setView(center, 11);
     L.control.zoom({ position: "bottomright" }).addTo(map);  // keep clear of Back button
-    // Dark base map, lightened via CSS filter so it isn't near-black.
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", {
       maxZoom: 18, className: "basemap-lite",
     }).addTo(map);
@@ -48,12 +55,30 @@ export const aircraft = {
       }
     };
     await load();
-    this._timer = setInterval(load, (ctx.config?.refresh?.aircraft || 8) * 1000);
+    // Slow refresh (planes don't need per-second updates; respects the 1 req/s upstream).
+    this._timer = setInterval(load, (ctx.config?.refresh?.aircraft || 20) * 1000);
+  },
+
+  _pickClosest(data) {
+    const list = data?.aircraft || [];     // backend returns nearest-first
+    if (!list.length) return null;
+    const airborne = list.find((a) => (a.altitude || 0) > 0);
+    return (airborne || list[0]).hex;
+  },
+
+  // ✈ SVG marker; selected/nearest plane is yellow, others light grey.
+  _iconFor(ac) {
+    const sel = ac.hex === this._selected;
+    const html = `<svg class="plane-svg ${sel ? "sel" : ""}" viewBox="0 0 24 24" `
+      + `width="28" height="28" style="transform:rotate(${ac.heading || 0}deg)">`
+      + `<path d="${PLANE_PATH}"/></svg>`;
+    return L.divIcon({ html, className: "", iconSize: [28, 28], iconAnchor: [14, 14] });
   },
 
   _render(el, ctx) {
     const data = this._data;
     const list = el.querySelector("#ac-list");
+    if (!list) return;
     const seen = new Set();
 
     for (const ac of data.aircraft) {
@@ -63,7 +88,7 @@ export const aircraft = {
       if (m) { m.setLatLng([ac.lat, ac.lon]); m.setIcon(icon); }
       else {
         m = L.marker([ac.lat, ac.lon], { icon }).addTo(this._map);
-        m.on("click", () => this._select(el, ctx, ac.hex));
+        m.on("click", () => { this._follow = false; this._select(el, ctx, ac.hex); });
         this._markers[ac.hex] = m;
       }
     }
@@ -82,48 +107,59 @@ export const aircraft = {
       `<div class="muted" style="padding:16px">No aircraft in range</div>`;
 
     list.querySelectorAll(".ac-row").forEach((row) =>
-      row.addEventListener("click", () => this._select(el, ctx, row.dataset.hex)));
+      row.addEventListener("click", () => {
+        this._follow = false; this._select(el, ctx, row.dataset.hex);
+      }));
 
-    if (!this._selected && data.aircraft.length) {
-      // Prefer the nearest airborne aircraft (skip ground vehicles) for "where to look".
-      const airborne = data.aircraft.find((a) => (a.altitude || 0) > 0);
-      this._select(el, ctx, (airborne || data.aircraft[0]).hex);
-    } else if (this._selected) {
-      this._renderDetail(el);
+    // Decide which plane to show: follow the closest, else keep the pinned one.
+    let target = this._follow ? this._pickClosest(data) : this._selected;
+    if (!data.aircraft.some((a) => a.hex === target)) target = this._pickClosest(data);
+
+    if (!target) {
+      this._selected = null;
+      this._renderDetail(el, null);
+    } else if (target !== this._selected) {
+      this._select(el, ctx, target);            // changed plane -> (re)load route + photo
+    } else {
+      this._renderLive(el);                      // same plane -> just refresh live numbers
     }
-  },
-
-  // ✈ text glyph (recolourable, unlike the multicolour emoji). Nose points NW (~315°),
-  // so add 45° to make heading 0 point north (up). Selected/nearest plane is yellow.
-  _iconFor(ac) {
-    const sel = ac.hex === this._selected;
-    const html = `<div class="plane-icon ${sel ? "sel" : ""}" `
-      + `style="transform:rotate(${(ac.heading || 0) + 45}deg)">✈</div>`;
-    return L.divIcon({ html, className: "", iconSize: [26, 26] });
   },
 
   _select(el, ctx, hex) {
     this._selected = hex;
-    el.querySelectorAll(".ac-row").forEach((r) =>
-      r.classList.toggle("sel", r.dataset.hex === hex));
-    for (const ac of this._data?.aircraft || []) {     // repaint markers (yellow = selected)
-      const m = this._markers[ac.hex];
-      if (m) m.setIcon(this._iconFor(ac));
-    }
-    this._renderDetail(el);
-    this._loadPhoto(el, ctx, hex);
+    this._highlightRows(el);
+    this._repaintMarkers();
     const ac = (this._data?.aircraft || []).find((a) => a.hex === hex);
+    this._renderDetail(el, ac);
+    this._loadPhoto(el, ctx, hex);
     this._loadRoute(el, ctx, ac?.callsign);
   },
 
-  _renderDetail(el) {
+  // Same plane still selected: update the look panel + live grid, keep route/photo/airline.
+  _renderLive(el) {
     const ac = (this._data?.aircraft || []).find((a) => a.hex === this._selected);
+    if (!ac) return;
     const sky = el.querySelector("#ac-sky");
-    const d = el.querySelector("#ac-detail");
-    if (!sky || !d) return;
-    if (!ac) { sky.innerHTML = ""; d.innerHTML = `<div class="muted">No selection</div>`; return; }
+    if (sky) this._renderLook(sky, ac);
+    const grid = el.querySelector("#ac-grid");
+    if (grid) grid.innerHTML = this._gridHtml(ac);
+    this._repaintMarkers();
+    this._highlightRows(el);
+  },
 
-    // "Where to look" panel — direction, elevation and distance carry equal weight.
+  _highlightRows(el) {
+    el.querySelectorAll(".ac-row").forEach((r) =>
+      r.classList.toggle("sel", r.dataset.hex === this._selected));
+  },
+
+  _repaintMarkers() {
+    for (const ac of this._data?.aircraft || []) {
+      const m = this._markers[ac.hex];
+      if (m) m.setIcon(this._iconFor(ac));
+    }
+  },
+
+  _renderLook(sky, ac) {
     sky.innerHTML = `
       <div class="look-grid">
         <div class="look-item"><div class="lk">Look</div>
@@ -133,23 +169,36 @@ export const aircraft = {
         <div class="look-item"><div class="lk">Distance</div>
           <div class="lv">${ac.distance_mi}<span class="u"> mi</span></div></div>
       </div>`;
+  },
 
-    // Avoid printing the registration twice (private flights broadcast reg as callsign,
+  _gridHtml(ac) {
+    // Don't print the registration twice (private flights broadcast reg as callsign,
     // e.g. callsign "GGBVN" vs reg "G-GBVN") — compare alphanumerics only.
-    const norm = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const regShown = ac.registration && norm(ac.registration) !== norm(ac.callsign);
+    const regShown = ac.registration && _norm(ac.registration) !== _norm(ac.callsign);
+    return `
+      <div class="k">Aircraft</div><div>${ac.type || "—"}${regShown ? " · " + ac.registration : ""}</div>
+      <div class="k">Altitude</div><div>${ac.altitude != null ? ac.altitude.toLocaleString() + " ft" : "—"}</div>
+      <div class="k">Speed</div><div>${ac.speed != null ? Math.round(ac.speed) + " kt" : "—"}</div>
+      <div class="k">Heading</div><div>${ac.heading != null ? Math.round(ac.heading) + "°" : "—"}</div>`;
+  },
+
+  _renderDetail(el, ac) {
+    const sky = el.querySelector("#ac-sky");
+    const d = el.querySelector("#ac-detail");
+    if (!sky || !d) return;
+    if (!ac) {
+      sky.innerHTML = "";
+      d.innerHTML = `<div class="muted">No aircraft in range</div>`;
+      return;
+    }
+    this._renderLook(sky, ac);
     d.innerHTML = `
       <div class="ac-flight">
         <span class="cs">${ac.callsign || ac.hex}</span>
         <span class="airline" id="ac-airline"></span>
       </div>
       <div class="ac-route" id="ac-route"><span class="muted">looking up route…</span></div>
-      <div class="grid">
-        <div class="k">Aircraft</div><div>${ac.type || "—"}${regShown ? " · " + ac.registration : ""}</div>
-        <div class="k">Altitude</div><div>${ac.altitude != null ? ac.altitude.toLocaleString() + " ft" : "—"}</div>
-        <div class="k">Speed</div><div>${ac.speed != null ? Math.round(ac.speed) + " kt" : "—"}</div>
-        <div class="k">Heading</div><div>${ac.heading != null ? Math.round(ac.heading) + "°" : "—"}</div>
-      </div>`;
+      <div class="grid" id="ac-grid">${this._gridHtml(ac)}</div>`;
   },
 
   async _loadRoute(el, ctx, callsign) {
