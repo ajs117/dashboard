@@ -251,6 +251,7 @@ html, body {
 /* On-screen numeric keypad for manual price entry */
 .keypad-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.55);
   display: flex; align-items: center; justify-content: center; z-index: 1100; }
+.keypad-wrap[hidden] { display: none; }   /* beat the display:flex so it really hides */
 .keypad { background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
   padding: 18px; width: 340px; }
 .kp-title { font-size: 14px; color: var(--muted); margin-bottom: 8px; }

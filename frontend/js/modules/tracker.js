@@ -136,6 +136,7 @@ export const tracker = {
         else if (buf.replace(".", "").length < 9) buf += k;
         draw();
       }));
+    ctx.tap(kp, (e) => { if (e.target === kp) this._closeKeypad(el, ctx); });  // tap backdrop to close
     ctx.tap(kp.querySelector(".kp-cancel"), () => this._closeKeypad(el, ctx));
     ctx.tap(kp.querySelector(".kp-save"), async () => {
       const val = parseFloat(buf);
