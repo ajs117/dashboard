@@ -29,7 +29,8 @@ _DEFS: dict[str, dict[str, Any]] = {
         "label": "TUI Holiday",
         "unit": "£",
         "kind": "manual",
-        "note": "Lanzarote · Jan 2027 · 2ad AI · BHX",
+        # Verified from the TUI page + URL params (not guessed).
+        "note": "Riu Palace Boavista · Boa Vista · 7nts 3 Jan 2027 · 2 adults AI · from BHX",
     },
 }
 
