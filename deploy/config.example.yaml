@@ -19,12 +19,12 @@ units:
 
 # --- Home page world clocks (carousel; IANA timezone names) ---
 world_clocks:
-  - { label: "California",  tz: "America/Los_Angeles" }
+  - { label: "Los Angeles", tz: "America/Los_Angeles" }
   - { label: "Chicago",     tz: "America/Chicago" }
-  - { label: "UK",          tz: "Europe/London" }
-  - { label: "Europe",      tz: "Europe/Paris" }
-  - { label: "East Europe", tz: "Europe/Bucharest" }
-  - { label: "India",       tz: "Asia/Kolkata" }
+  - { label: "London",      tz: "Europe/London" }
+  - { label: "Paris",       tz: "Europe/Paris" }
+  - { label: "Bucharest",   tz: "Europe/Bucharest" }
+  - { label: "Mumbai",      tz: "Asia/Kolkata" }
   - { label: "Hong Kong",   tz: "Asia/Hong_Kong" }
 
 # --- Home page stocks/indices ticker (Yahoo Finance symbols) ---

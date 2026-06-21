@@ -108,46 +108,55 @@ export const aircraft = {
     const ac = (this._data?.aircraft || []).find((a) => a.hex === this._selected);
     const sky = el.querySelector("#ac-sky");
     const d = el.querySelector("#ac-detail");
+    if (!sky || !d) return;
     if (!ac) { sky.innerHTML = ""; d.innerHTML = `<div class="muted">No selection</div>`; return; }
 
     // "Where to look" panel.
     sky.innerHTML = `
       <div class="look-big">${ac.compass || "?"} <span class="deg">${ac.azimuth ?? "?"}°</span></div>
-      <div class="look-sub">${ac.elevation ?? 0}° above horizon · ${ac.distance_mi} mi away</div>`;
+      <div class="look-sub">${ac.elevation ?? 0}° up · ${ac.distance_mi} mi away</div>`;
 
     d.innerHTML = `
-      <div class="cs">${ac.callsign || ac.hex}</div>
-      <div class="route" id="ac-route"><span class="muted">route…</span></div>
+      <div class="ac-flight">
+        <span class="cs">${ac.callsign || ac.hex}</span>
+        <span class="airline" id="ac-airline"></span>
+      </div>
+      <div class="ac-route" id="ac-route"><span class="muted">looking up route…</span></div>
       <div class="grid">
-        <div class="k">Type</div><div>${ac.type || "—"}</div>
-        <div class="k">Reg</div><div>${ac.registration || "—"}</div>
-        <div class="k">Altitude</div><div>${ac.altitude != null ? ac.altitude + " ft" : "—"}</div>
+        <div class="k">Aircraft</div><div>${ac.type || "—"}${ac.registration ? " · " + ac.registration : ""}</div>
+        <div class="k">Altitude</div><div>${ac.altitude != null ? ac.altitude.toLocaleString() + " ft" : "—"}</div>
         <div class="k">Speed</div><div>${ac.speed != null ? Math.round(ac.speed) + " kt" : "—"}</div>
         <div class="k">Heading</div><div>${ac.heading != null ? Math.round(ac.heading) + "°" : "—"}</div>
-        <div class="k">Distance</div><div>${ac.distance_mi} mi</div>
       </div>`;
   },
 
   async _loadRoute(el, ctx, callsign) {
     const r = el.querySelector("#ac-route");
     if (!r) return;
-    if (!callsign) { r.innerHTML = `<span class="muted">No callsign</span>`; return; }
-    r.innerHTML = `<span class="muted">route…</span>`;
+    callsign = (callsign || "").trim();
+    if (!callsign) { r.innerHTML = `<span class="muted">No flight number</span>`; return; }
+    r.innerHTML = `<span class="muted">looking up route…</span>`;
     try {
-      const env = await ctx.api(`/api/route/${encodeURIComponent(callsign.trim())}`);
-      if (callsign !== (this._data?.aircraft || []).find((a) => a.hex === this._selected)?.callsign)
-        return;
+      const env = await ctx.api(`/api/route/${encodeURIComponent(callsign)}`);
+      const sel = (this._data?.aircraft || []).find((a) => a.hex === this._selected);
+      if (!sel || (sel.callsign || "").trim() !== callsign) return;   // selection changed
+      const route = el.querySelector("#ac-route");
+      const al = el.querySelector("#ac-airline");
+      if (!route) return;
       const d = env.data;
       if (d && (d.origin || d.destination)) {
-        const o = d.origin?.iata || d.origin?.city || "?";
-        const dst = d.destination?.iata || d.destination?.city || "?";
-        r.innerHTML = `<span class="ap">${o}</span> → <span class="ap">${dst}</span>
-          ${d.airline ? `<span class="muted"> · ${d.airline}</span>` : ""}`;
+        const o = d.origin || {}, ds = d.destination || {};
+        route.innerHTML = `
+          <span class="ap"><b>${o.iata || "???"}</b><small>${o.city || o.name || ""}</small></span>
+          <span class="arrow">✈</span>
+          <span class="ap"><b>${ds.iata || "???"}</b><small>${ds.city || ds.name || ""}</small></span>`;
+        if (al) al.textContent = d.airline || "";
       } else {
-        r.innerHTML = `<span class="muted">Route unknown</span>`;
+        route.innerHTML = `<span class="muted">Route not available</span>`;
       }
     } catch (e) {
-      r.innerHTML = `<span class="muted">Route unknown</span>`;
+      const route = el.querySelector("#ac-route");
+      if (route) route.innerHTML = `<span class="muted">Route not available</span>`;
     }
   },
 

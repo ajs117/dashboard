@@ -1,4 +1,4 @@
-// Home: clock, weather (dew point + wind), world-clock carousel, stocks, app launcher.
+// Home: clock, weather (dew point + wind), world-clock carousel, stocks ticker, launcher.
 
 const WMO_EMOJI = {
   0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️",
@@ -20,6 +20,13 @@ const dayName = (iso) => {
   try { return new Date(iso).toLocaleDateString("en-GB", { weekday: "short" }); }
   catch { return iso; }
 };
+function tzAbbr(date, tz) {
+  try {
+    const p = new Intl.DateTimeFormat("en-GB", { timeZoneName: "short", timeZone: tz })
+      .formatToParts(date).find((x) => x.type === "timeZoneName");
+    return p ? p.value : "";
+  } catch { return ""; }
+}
 
 export const home = {
   _timer: null, _wxTimer: null, _stkTimer: null, _carTimer: null, _carIdx: 0,
@@ -45,12 +52,10 @@ export const home = {
             </button>`).join("")}
         </div>
 
-        <div class="bottom-strip">
-          <div class="carousel-card">
-            <div class="carousel" id="carousel"></div>
-          </div>
-          <div class="stocks-card" id="stocks"><div class="muted">Loading markets…</div></div>
-        </div>
+        <div class="carousel-card"><div class="carousel" id="carousel"></div></div>
+
+        <div class="ticker-bar"><div class="ticker" id="ticker">
+          <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
     el.querySelectorAll(".app-tile").forEach((b) =>
@@ -70,9 +75,8 @@ export const home = {
     this._timer = setInterval(tick, 1000);
     this._carTimer = setInterval(() => {
       this._carIdx = (this._carIdx + 1) % Math.max(1, this._clocks.length);
-    }, 4000);
+    }, 5000);
 
-    // Weather.
     const loadWeather = async () => {
       try {
         const env = await ctx.api("/api/weather");
@@ -89,16 +93,15 @@ export const home = {
     await loadWeather();
     this._wxTimer = setInterval(loadWeather, (cfg.refresh?.weather || 600) * 1000);
 
-    // Stocks.
     const loadStocks = async () => {
       try {
         const env = await ctx.api("/api/stocks");
-        const stk = el.querySelector("#stocks");
-        if (!stk) return;
-        renderStocks(stk, env.data, env.stale);
+        const tk = el.querySelector("#ticker");
+        if (!tk) return;
+        renderTicker(tk, env.data, env.stale);
       } catch (e) {
-        const stk = el.querySelector("#stocks");
-        if (stk) stk.innerHTML = `<div class="muted">Markets unavailable</div>`;
+        const tk = el.querySelector("#ticker");
+        if (tk) tk.innerHTML = `<span class="muted">Markets unavailable</span>`;
       }
     };
     await loadStocks();
@@ -116,7 +119,7 @@ export const home = {
       const c = this._clocks[(this._carIdx + k) % n];
       html += `
         <div class="wc">
-          <div class="city">${c.label}</div>
+          <div class="city">${c.label} <span class="tz">${tzAbbr(now, c.tz)}</span></div>
           <div class="t">${fmt(now, { hour: "2-digit", minute: "2-digit", hour12: false }, c.tz)}</div>
           <div class="d">${fmt(now, { weekday: "short", day: "numeric", month: "short" }, c.tz)}</div>
         </div>`;
@@ -172,17 +175,19 @@ function renderWeather(el, w) {
     </div>`;
 }
 
-function renderStocks(el, data, stale) {
-  const quotes = data.quotes || [];
-  el.innerHTML = quotes.map((q) => {
-    if (!q.ok) return `<div class="stk"><div class="nm">${q.label}</div><div class="muted">—</div></div>`;
+function renderTicker(el, data, stale) {
+  const quotes = (data.quotes || []).filter((q) => q.ok);
+  if (!quotes.length) { el.innerHTML = `<span class="muted">Markets unavailable</span>`; return; }
+  const item = (q) => {
     const up = (q.pct ?? 0) >= 0;
     const arrow = up ? "▲" : "▼";
-    return `
-      <div class="stk">
-        <div class="nm">${q.label}</div>
-        <div class="px">${q.price?.toLocaleString()}</div>
-        <div class="${up ? "up" : "down"}">${arrow} ${Math.abs(q.pct ?? 0).toFixed(2)}%</div>
-      </div>`;
-  }).join("") + (stale ? `<div class="stk muted">delayed</div>` : "");
+    return `<span class="tk">
+      <span class="nm">${q.label}</span>
+      <span class="px">${q.price?.toLocaleString()}</span>
+      <span class="${up ? "up" : "down"}">${arrow} ${Math.abs(q.pct ?? 0).toFixed(2)}%</span>
+    </span>`;
+  };
+  // Duplicate the sequence so the marquee loops seamlessly (-50% keyframe).
+  const seq = quotes.map(item).join("");
+  el.innerHTML = seq + seq + (stale ? `<span class="tk muted">delayed</span>` : "");
 }

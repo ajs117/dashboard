@@ -1,4 +1,4 @@
-"""Radar rain-prediction logic (pure parts: tile maths, classify, build, extrapolate)."""
+"""Radar rain-prediction logic (pure parts: tile maths, classify, area forecast)."""
 from __future__ import annotations
 
 from app.providers import radar_forecast as rf
@@ -8,9 +8,7 @@ def test_latlon_to_tile_ranges():
     tx, ty, px, py = rf.latlon_to_tile(51.5, -0.12, 8)
     assert tx == int(tx) and ty == int(ty)
     assert 0 <= px <= 255 and 0 <= py <= 255
-    # London at z=8 sits in tile x=127/128, y=85 region.
-    assert 120 <= tx <= 135
-    assert 80 <= ty <= 90
+    assert 120 <= tx <= 135 and 80 <= ty <= 90
 
 
 def test_classify_levels():
@@ -20,62 +18,48 @@ def test_classify_levels():
     assert rf.classify(200) == ("heavy", 3)
 
 
-def _series(levels, start=1_000_000, step=600):
-    """Build a series with given intensity levels, 10-min spacing."""
-    out = []
-    for i, lvl in enumerate(levels):
-        alpha = {0: 0, 1: 50, 2: 120, 3: 200}[lvl]
-        out.append({"time": start + i * step, "intensity": lvl,
-                    "precip": lvl > 0, "level": rf.classify(alpha)[0], "alpha": alpha})
-    return out
+def test_km_per_pixel_positive():
+    assert rf.km_per_pixel(52.4, 5) > 0
 
 
-def test_build_nowcast_start():
-    # 3 past dry frames + 2 nowcast frames, second is rain -> "start".
-    s = _series([0, 0, 0, 0, 1])
-    now = s[2]["time"]
-    out = rf.build_forecast(s, past_count=3, now=now)
-    assert out["raining_now"] is False
-    assert out["change"]["type"] == "start"
-    assert out["method"] == "nowcast"
+def _series(items, start=1_000_000, step=600):
+    """items: list of (center_alpha, nearest_km); oldest->newest, 10-min spacing."""
+    return [{"time": start + i * step, "center_alpha": a, "nearest_km": k}
+            for i, (a, k) in enumerate(items)]
 
 
-def test_build_nowcast_stop():
-    s = _series([2, 2, 2, 1, 0])
-    now = s[2]["time"]
-    out = rf.build_forecast(s, past_count=3, now=now)
+def test_raining_now():
+    s = _series([(0, 30), (50, 10), (200, 0)])
+    out = rf.build_forecast(s, now=s[-1]["time"])
     assert out["raining_now"] is True
-    assert out["change"]["type"] == "stop"
-    assert out["method"] == "nowcast"
+    assert out["status"] == "raining"
+    assert out["level"] == "heavy"
 
 
-def test_build_trend_extrapolation_start():
-    # All past frames (no nowcast). Rising alpha while still dry -> extrapolate a start.
-    times = [1_000_000 + i * 600 for i in range(4)]
-    alphas = [0, 5, 12, 20]                       # trending up toward the 25 threshold
-    series = [{"time": t, "intensity": 0, "precip": False, "level": "none", "alpha": a}
-              for t, a in zip(times, alphas)]
-    now = times[-1]                               # "now" == last past frame -> no horizon
-    out = rf.build_forecast(series, past_count=len(series), now=now)
-    assert out["method"] == "trend"
-    assert out["change"]["type"] == "start"
+def test_approaching_sets_eta():
+    # Nearest rain closing in: 60 -> 40 -> 20 km over 20 min.
+    s = _series([(0, 60), (0, 40), (0, 20)])
+    out = rf.build_forecast(s, now=s[-1]["time"])
+    assert out["status"] == "approaching"
     assert out["minutes_until"] is not None and out["minutes_until"] > 0
 
 
-def test_build_flat_no_change():
-    s = _series([0, 0, 0, 0])
-    out = rf.build_forecast(s, past_count=len(s), now=s[-1]["time"])
-    assert out["change"] is None
+def test_nearby_not_approaching():
+    # Rain present and steady (~20 km), not closing.
+    s = _series([(0, 20), (0, 21), (0, 20)])
+    out = rf.build_forecast(s, now=s[-1]["time"])
+    assert out["status"] == "nearby"
     assert out["raining_now"] is False
 
 
-def test_extrapolate_requires_trend():
-    times = [0, 600, 1200, 1800]
-    flat = [10, 10, 10, 10]
-    assert rf.extrapolate_change(times, flat, now=1800) is None
+def test_dry_when_no_rain():
+    s = _series([(0, None), (0, None), (0, None)])
+    out = rf.build_forecast(s, now=s[-1]["time"])
+    assert out["status"] == "dry"
+    assert out["nearest_km"] is None
 
 
-def test_build_empty_series():
-    out = rf.build_forecast([], past_count=0, now=0)
+def test_empty_series():
+    out = rf.build_forecast([], now=0)
     assert out["raining_now"] is False
-    assert out["change"] is None
+    assert out["status"] == "unknown"

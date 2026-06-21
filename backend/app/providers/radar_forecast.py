@@ -1,11 +1,13 @@
-"""Rain start/stop prediction at the observer's exact location.
+"""Rain prediction for the observer's location.
 
-RainViewer gives past frames plus short-range *nowcast* (forecast) frames. We sample the
-radar tile pixel over the user's lat/lon for every frame, classify precip intensity from
-the tile's alpha channel, then report whether it's raining now and when the next
-start/stop transition is expected.
+RainViewer gives past frames plus (sometimes) short nowcast frames. Sampling only the
+exact point misses rain that is clearly visible nearby and heading in, so we sample a
+box around the location across the most recent frames and:
+  - report whether it's raining *at* the location now,
+  - find the nearest rain and how far away it is,
+  - estimate an arrival time from how the nearest-rain distance is changing.
 
-The tile-coordinate maths is pure (and unit-tested); pixel sampling needs Pillow.
+Tile maths is pure (unit-tested); pixel sampling needs Pillow.
 """
 from __future__ import annotations
 
@@ -17,6 +19,12 @@ from typing import Any
 
 from . import client
 from . import radar as radar_provider
+
+_RAIN_ALPHA = 25            # tile alpha at/above this = precipitation
+_AREA_ZOOM = 5              # lower zoom -> one tile covers the whole search area
+_BOX_PX = 20               # search radius in pixels (~60 km at z5, UK latitude)
+_MAX_FRAMES = 5            # most recent frames to analyse (~40 min of history)
+_NEAR_KM = 60.0           # only care about rain within this distance
 
 
 def latlon_to_tile(lat: float, lon: float, z: int) -> tuple[int, int, int, int]:
@@ -33,7 +41,7 @@ def latlon_to_tile(lat: float, lon: float, z: int) -> tuple[int, int, int, int]:
 
 def classify(alpha: int) -> tuple[str, int]:
     """Map a tile pixel's alpha to a precip level."""
-    if alpha < 25:
+    if alpha < _RAIN_ALPHA:
         return "none", 0
     if alpha < 90:
         return "light", 1
@@ -42,129 +50,96 @@ def classify(alpha: int) -> tuple[str, int]:
     return "heavy", 3
 
 
-def _sample_alpha(img, px: int, py: int) -> int:
-    """Max alpha in a 3x3 neighbourhood (robust to single-pixel noise)."""
-    best = 0
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            x = min(255, max(0, px + dx))
-            y = min(255, max(0, py + dy))
-            p = img.getpixel((x, y))
-            a = p[3] if len(p) > 3 else 255
-            best = max(best, a)
-    return best
+def km_per_pixel(lat: float, z: int) -> float:
+    return 156543.03392 * math.cos(math.radians(lat)) / (2 ** z) / 1000.0
 
 
-_RAIN_ALPHA = 25            # alpha at/above this = precipitation
-_TREND_HORIZON_MIN = 45     # how far the extrapolation is allowed to look ahead
+async def _sample_area(host: str, path: str, lat: float, lon: float) -> dict[str, Any]:
+    """Sample a box around the location in one frame.
 
-
-async def _frame(host: str, path: str, z: int, tx: int, ty: int,
-                 px: int, py: int) -> dict[str, Any]:
+    Returns center precip + nearest-rain distance (km) within the search radius.
+    """
     from PIL import Image  # lazy import so the app starts without Pillow
 
-    url = f"{host}{path}/256/{z}/{tx}/{ty}/4/1_0.png"  # scheme 4, smooth, no snow
+    tx, ty, px, py = latlon_to_tile(lat, lon, _AREA_ZOOM)
+    url = f"{host}{path}/256/{_AREA_ZOOM}/{tx}/{ty}/4/1_0.png"
     try:
         r = await client().get(url)
         r.raise_for_status()
         img = Image.open(io.BytesIO(r.content)).convert("RGBA")
-        alpha = _sample_alpha(img, px, py)
-        name, lvl = classify(alpha)
-        return {"precip": lvl > 0, "level": name, "intensity": lvl, "alpha": alpha}
-    except Exception:  # noqa: BLE001 - one bad tile shouldn't sink the forecast
-        return {"precip": None, "level": "unknown", "intensity": None, "alpha": None}
+    except Exception:  # noqa: BLE001
+        return {"center_alpha": None, "nearest_km": None, "center_level": "unknown"}
+
+    kmpp = km_per_pixel(lat, _AREA_ZOOM)
+    center_alpha = 0
+    nearest_px = None
+    for dy in range(-_BOX_PX, _BOX_PX + 1):
+        for dx in range(-_BOX_PX, _BOX_PX + 1):
+            x, y = px + dx, py + dy
+            if not (0 <= x <= 255 and 0 <= y <= 255):
+                continue
+            p = img.getpixel((x, y))
+            a = p[3] if len(p) > 3 else 255
+            if abs(dx) <= 1 and abs(dy) <= 1:
+                center_alpha = max(center_alpha, a)
+            if a >= _RAIN_ALPHA:
+                d = math.hypot(dx, dy)
+                if nearest_px is None or d < nearest_px:
+                    nearest_px = d
+    return {
+        "center_alpha": center_alpha,
+        "center_level": classify(center_alpha)[0],
+        "nearest_km": round(nearest_px * kmpp, 1) if nearest_px is not None else None,
+    }
 
 
-def _slope_per_min(times: list[float], alphas: list[float]) -> float:
-    """Least-squares slope of alpha vs minutes."""
-    n = len(times)
-    if n < 2:
-        return 0.0
-    xs = [(t - times[0]) / 60.0 for t in times]
-    mx = sum(xs) / n
-    my = sum(alphas) / n
-    den = sum((x - mx) ** 2 for x in xs)
-    if den == 0:
-        return 0.0
-    return sum((x - mx) * (a - my) for x, a in zip(xs, alphas)) / den
+def build_forecast(series: list[dict], now: float) -> dict[str, Any]:
+    """Pure: turn the per-frame area samples into a now/approaching summary.
 
-
-def extrapolate_change(times: list[float], alphas: list[float], now: float,
-                       horizon_min: float = _TREND_HORIZON_MIN) -> dict | None:
-    """Project the recent intensity trend at the point to the next rain start/stop.
-
-    Used when RainViewer provides no nowcast frames. Fits a line through the last few
-    observed alphas and finds where it crosses the rain threshold, within `horizon_min`.
-    """
-    pts = [(t, a) for t, a in zip(times, alphas) if a is not None]
-    if len(pts) < 3:
-        return None
-    pts = pts[-4:]
-    ts = [t for t, _ in pts]
-    al = [a for _, a in pts]
-    slope = _slope_per_min(ts, al)
-    if abs(slope) < 0.5:            # essentially flat -> no confident transition
-        return None
-    cur_a, cur_t = al[-1], ts[-1]
-    raining = cur_a >= _RAIN_ALPHA
-    if not raining and slope > 0:
-        kind = "start"
-    elif raining and slope < 0:
-        kind = "stop"
-    else:
-        return None
-    eta = cur_t + (_RAIN_ALPHA - cur_a) / slope * 60.0
-    mins = (eta - now) / 60.0
-    if mins <= 0 or mins > horizon_min:
-        return None
-    return {"type": kind, "time": eta, "minutes": round(mins), "method": "trend"}
-
-
-def build_forecast(series: list[dict], past_count: int, now: float) -> dict[str, Any]:
-    """Pure: turn the per-frame precip series into a now/next-change summary.
-
-    Prefers RainViewer nowcast (future) frames; falls back to trend extrapolation of the
-    recent past frames when no nowcast is available.
+    `series` is oldest->newest; each item: {time, center_alpha, nearest_km}.
     """
     if not series:
-        return {"raining_now": False, "level": "unknown", "change": None,
-                "minutes_until": None, "horizon_min": 0, "method": "none", "series": []}
-    cur_idx = max(0, min(len(series) - 1, past_count - 1))
-    current = series[cur_idx]
-    raining_now = bool(current["precip"])
-    future = series[cur_idx + 1:]
+        return {"raining_now": False, "level": "none", "status": "unknown",
+                "nearest_km": None, "minutes_until": None, "series": []}
 
-    change = None
-    method = "none"
-    for s in future:
-        if raining_now and s["precip"] is False:
-            change = {"type": "stop", "time": s["time"], "level": current["level"]}
-            break
-        if not raining_now and s["precip"]:
-            change = {"type": "start", "time": s["time"], "level": s["level"]}
-            break
-    if change:
-        method = "nowcast"
+    cur = series[-1]
+    raining_now = bool(cur.get("center_alpha") and cur["center_alpha"] >= _RAIN_ALPHA)
+    level = classify(cur.get("center_alpha") or 0)[0]
+    nearest = cur.get("nearest_km")
 
-    horizon_min = max(0, round((series[-1]["time"] - now) / 60))
-    # No usable nowcast horizon -> extrapolate from the recent trend.
-    if change is None and horizon_min <= 0:
-        past = series[: cur_idx + 1]
-        ext = extrapolate_change([s["time"] for s in past],
-                                 [s["alpha"] for s in past], now)
-        if ext:
-            change = {"type": ext["type"], "time": ext["time"]}
-            method = "trend"
-            horizon_min = _TREND_HORIZON_MIN
+    # Approach speed: linear fit of nearest_km vs minutes over frames that saw rain.
+    pts = [(s["time"], s["nearest_km"]) for s in series if s.get("nearest_km") is not None]
+    minutes_until = None
+    approaching = False
+    if len(pts) >= 2:
+        t0 = pts[0][0]
+        xs = [(t - t0) / 60.0 for t, _ in pts]
+        ys = [k for _, k in pts]
+        n = len(xs)
+        mx, my = sum(xs) / n, sum(ys) / n
+        den = sum((x - mx) ** 2 for x in xs)
+        slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den if den else 0.0
+        if slope < -0.2 and nearest is not None and nearest > 0:   # closing in
+            approaching = True
+            eta = nearest / -slope
+            if 0 < eta <= 120:
+                minutes_until = round(eta)
 
-    minutes = max(0, round((change["time"] - now) / 60)) if change else None
+    if raining_now:
+        status = "raining"
+    elif nearest is None or nearest > _NEAR_KM:
+        status = "dry"
+    elif approaching:
+        status = "approaching"
+    else:
+        status = "nearby"
+
     return {
         "raining_now": raining_now,
-        "level": current["level"],
-        "change": change,
-        "minutes_until": minutes,
-        "horizon_min": horizon_min,
-        "method": method,
+        "level": level,
+        "status": status,                 # raining | approaching | nearby | dry
+        "nearest_km": nearest,
+        "minutes_until": minutes_until,
         "series": series,
     }
 
@@ -172,20 +147,14 @@ def build_forecast(series: list[dict], past_count: int, now: float) -> dict[str,
 async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
     loc = cfg.get("location", {})
     lat, lon = float(loc.get("lat")), float(loc.get("lon"))
-    # RainViewer's free radar tiles cap at z7; higher zooms return a placeholder.
-    z = min(7, int(cfg.get("radar", {}).get("forecast_zoom", 7)))
 
     rdata = await radar_provider.fetch(cfg)
-    frames = rdata.get("frames", [])
-    host = rdata.get("host")
-    past_count = rdata.get("past_count", len(frames))
+    frames = rdata.get("frames", [])[-_MAX_FRAMES:]
 
-    tx, ty, px, py = latlon_to_tile(lat, lon, z)
-    samples = await asyncio.gather(
-        *[_frame(host, f["path"], z, tx, ty, px, py) for f in frames]
-    )
+    host = rdata.get("host")
+    samples = await asyncio.gather(*[_sample_area(host, f["path"], lat, lon) for f in frames])
     series = [{"time": f["time"], **s} for f, s in zip(frames, samples)]
 
-    out = build_forecast(series, past_count, time.time())
+    out = build_forecast(series, time.time())
     out["location"] = loc.get("label", "")
     return out

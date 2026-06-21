@@ -1,17 +1,17 @@
-// Trains: National Rail departure board.
+// Trains: National Rail live departure board, styled like a station CIS display.
 
-function etdClass(etd, cancelled) {
-  if (cancelled) return "etd-cancelled";
+function expClass(etd, cancelled) {
+  if (cancelled) return "exp-cancelled";
   if (!etd) return "";
-  if (etd.toLowerCase() === "on time") return "etd-ontime";
-  return "etd-late"; // a time or "Delayed"
+  return etd.toLowerCase() === "on time" ? "exp-ontime" : "exp-late";
 }
 
 export const trains = {
   _timer: null,
 
   async mount(el, ctx) {
-    el.innerHTML = `<div class="trains" id="trains"><div class="muted">Loading departures…</div></div>`;
+    const cfg = ctx.config || {};
+    el.innerHTML = `<div class="trains" id="trains"><div class="muted" style="padding:24px">Loading departures…</div></div>`;
     const load = async () => {
       try {
         const env = await ctx.api("/api/trains");
@@ -19,49 +19,64 @@ export const trains = {
         const root = el.querySelector("#trains");
         if (!root) return;
         ctx.setStale(env.stale, "trains");
-        this._render(root, env.data);
+        this._render(root, env.data, cfg);
       } catch (e) {
         const root = el.querySelector("#trains");
         if (root) root.innerHTML =
-          `<div class="err">Departures unavailable.<br><span class="muted">
-           Check the Darwin token / station code in config.</span></div>`;
+          `<div class="err" style="padding:24px">Departures unavailable.<br>
+           <span class="muted">Check the Darwin token / station code in config.</span></div>`;
       }
     };
     await load();
-    this._timer = setInterval(load, (ctx.config?.refresh?.trains || 30) * 1000);
+    this._timer = setInterval(load, (cfg.refresh?.trains || 30) * 1000);
   },
 
-  _render(el, d) {
+  _render(el, d, cfg) {
     const services = d.services || [];
-    const messages = (d.messages || []).map((m) => `<div class="nrcc">⚠️ ${m}</div>`).join("");
+    const dest = (cfg.trains?.destination_crs || "").trim();
+    const messages = (d.messages || [])
+      .map((m) => `<div class="nrcc">⚠️ ${m}</div>`).join("");
+
     const rows = services.map((s) => {
-      const calling = (s.calling_points || [])
-        .map((c) => c.name).slice(0, 6).join(", ");
+      const calling = (s.calling_points || []).map((c) => c.name).slice(0, 8).join(" • ");
+      const exp = s.cancelled ? "Cancelled" : (s.etd || "");
       return `
-        <div class="board-row">
-          <div class="time">${s.std || ""}</div>
-          <div>
-            <div class="dest">${s.destination || "—"}</div>
-            <div class="calling">${calling ? "Calling: " + calling : s.operator || ""}</div>
+        <div class="brow ${s.cancelled ? "is-cancelled" : ""}">
+          <div class="b-time">${s.std || ""}</div>
+          <div class="b-dest">
+            <div class="dst">${s.destination || "—"}</div>
+            <div class="calling">${calling ? "Calling at: " + calling : (s.operator || "")}</div>
           </div>
-          <div class="${etdClass(s.etd, s.cancelled)}">${s.cancelled ? "Cancelled" : (s.etd || "")}</div>
-          <div>${s.platform ? "Plat " + s.platform : ""}</div>
+          <div class="b-plat">${s.platform ? s.platform : "–"}</div>
+          <div class="b-exp ${expClass(s.etd, s.cancelled)}">${exp}</div>
         </div>`;
     }).join("");
 
     el.innerHTML = `
-      <h2>${d.station || "Departures"}</h2>
-      <div class="sub">${d.crs || ""}${d.generated_at ? " · updated " + d.generated_at.slice(11,16) : ""}</div>
+      <div class="board-head">
+        <div class="bh-title">
+          <span class="bh-station">${d.station || "Departures"}</span>
+          <span class="bh-crs">${d.crs || ""}${dest ? " → " + dest : ""}</span>
+        </div>
+        <div class="bh-clock" id="bh-clock"></div>
+      </div>
       ${messages}
       <div class="board">
-        <div class="board-row head">
-          <div>Time</div><div>Destination</div><div>Expected</div><div>Plat</div>
+        <div class="brow head">
+          <div class="b-time">Time</div>
+          <div class="b-dest">Destination</div>
+          <div class="b-plat">Plat</div>
+          <div class="b-exp">Expected</div>
         </div>
-        ${rows || `<div class="board-row"><div class="muted">No departures listed</div></div>`}
+        <div class="board-rows">
+          ${rows || `<div class="brow"><div class="b-dest muted">No departures listed</div></div>`}
+        </div>
       </div>`;
+
+    const clk = el.querySelector("#bh-clock");
+    if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
+      { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   },
 
-  unmount() {
-    clearInterval(this._timer);
-  },
+  unmount() { clearInterval(this._timer); },
 };

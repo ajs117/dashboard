@@ -45,7 +45,7 @@ html, body {
 .home {
   display: grid; height: 100%; padding: 16px; gap: 14px;
   grid-template-columns: 1.45fr 1fr;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto 1fr auto;
 }
 .clock-card { grid-column: 1; grid-row: 1; }
 .big-time { font-size: 78px; font-weight: 700; line-height: 1; letter-spacing: 2px; }
@@ -84,25 +84,31 @@ html, body {
 .wx-day .d { color: var(--muted); }
 .wx-day .hi { font-weight: 700; }
 
-/* Bottom strip: carousel + stocks */
-.bottom-strip { grid-column: 1 / span 2; grid-row: 3; display: flex; gap: 14px; min-height: 0; }
-.carousel-card, .stocks-card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-  padding: 12px 14px; display: flex; align-items: center;
-}
-.carousel-card { flex: 1.5; overflow: hidden; }
+/* World-clock carousel (full width) */
+.carousel-card { grid-column: 1 / span 2; grid-row: 3; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px;
+  display: flex; align-items: center; overflow: hidden; }
 .carousel { display: flex; gap: 12px; width: 100%; }
-.wc { flex: 1; background: var(--panel-2); border-radius: 12px; padding: 10px 12px;
+.wc { flex: 1; background: var(--panel-2); border-radius: 12px; padding: 10px 14px;
       text-align: center; }
-.wc .city { font-size: 14px; color: var(--muted); }
-.wc .t { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wc .city { font-size: 15px; color: var(--fg); }
+.wc .city .tz { color: var(--muted); font-size: 11px; }
+.wc .t { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .wc .d { font-size: 12px; color: var(--muted); }
 
-.stocks-card { flex: 1; gap: 6px; justify-content: space-around; }
-.stk { text-align: center; font-size: 13px; }
-.stk .nm { color: var(--muted); font-size: 12px; }
-.stk .px { font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
-.stk .up { color: var(--good); } .stk .down { color: var(--bad); }
+/* Stocks ticker (full-width scrolling bar) */
+.ticker-bar { grid-column: 1 / span 2; grid-row: 4; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; height: 46px;
+  display: flex; align-items: center; overflow: hidden; }
+.ticker { display: inline-flex; white-space: nowrap; will-change: transform;
+  animation: ticker-scroll 36s linear infinite; }
+@keyframes ticker-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.tk { display: inline-flex; align-items: baseline; gap: 8px; padding: 0 26px;
+  border-right: 1px solid var(--line); font-size: 16px; }
+.tk .nm { color: var(--muted); }
+.tk .px { font-weight: 700; font-variant-numeric: tabular-nums; }
+.tk .up { color: var(--good); font-weight: 600; }
+.tk .down { color: var(--bad); font-weight: 600; }
 
 /* ============ AIRCRAFT ============ */
 .ac-layout { display: grid; grid-template-columns: 1fr 340px; height: 100%; }
@@ -118,9 +124,15 @@ html, body {
 .ac-sky .look-big .deg { font-weight: 600; opacity: .8; }
 .ac-sky .look-sub { font-size: 14px; font-weight: 600; }
 .ac-detail { padding: 12px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-.ac-detail .cs { font-size: 22px; font-weight: 700; }
-.ac-detail .route { font-size: 15px; margin: 4px 0 8px; }
-.ac-detail .route .ap { font-weight: 700; color: var(--accent); }
+.ac-flight { display: flex; align-items: baseline; gap: 10px; }
+.ac-flight .cs { font-size: 24px; font-weight: 800; letter-spacing: .5px; }
+.ac-flight .airline { color: var(--muted); font-size: 13px; }
+.ac-route { display: flex; align-items: center; gap: 12px; margin: 8px 0 10px;
+            background: var(--panel-2); border-radius: 10px; padding: 8px 12px; }
+.ac-route .ap { display: flex; flex-direction: column; line-height: 1.1; }
+.ac-route .ap b { font-size: 22px; color: var(--accent); }
+.ac-route .ap small { font-size: 11px; color: var(--muted); }
+.ac-route .arrow { color: var(--muted); font-size: 18px; }
 .ac-detail .grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 14px; }
 .ac-detail .grid .k { color: var(--muted); }
 .ac-list { overflow: auto; flex: 1; }
@@ -137,13 +149,49 @@ html, body {
   background: rgba(13,17,23,.9); border: 1px solid var(--line); border-radius: 14px;
   padding: 12px 16px;
 }
+.rain-panel.r-now { border-color: var(--accent); }
+.rain-panel.r-soon { border-color: var(--warn); }
 .rain-now { font-size: 22px; font-weight: 700; }
-.rain-now .lvl { font-size: 15px; color: var(--muted); font-weight: 500; }
+.rain-now .lvl { font-size: 15px; color: var(--muted); font-weight: 500; text-transform: capitalize; }
 .rain-next { font-size: 16px; margin-top: 4px; }
-.rain-next .start { color: var(--accent); font-weight: 700; }
-.rain-next .stop { color: var(--good); font-weight: 700; }
+.rain-next .soon { color: var(--warn); font-weight: 700; }
+.rain-next .near { color: var(--accent); font-weight: 700; }
 .rain-foot { font-size: 11px; color: var(--muted); margin-top: 8px; }
-.rain-foot .method { font-style: italic; }
-.spark { display: flex; align-items: flex-end; gap: 2px; height: 28px; margin-top: 8px; }
-.spark .bar { width: 7px; border-radius: 2px 2px 0 0; background: var(--line); }
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 28px; margin-top: 8px; }
+.spark .bar { width: 8px; border-radius: 2px 2px 0 0; background: var(--line); }
+.spark .bar.near { background: var(--warn); }
 .spark .bar.on { background: var(--accent); }
+
+/* ============ TRAINS — British station departure board (amber, dot-matrix feel) ====== */
+.trains { height: 100%; display: flex; flex-direction: column; background: #070707;
+  color: #ffae26;
+  font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, ui-monospace, monospace; }
+.board-head { display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 22px; border-bottom: 2px solid rgba(255,174,38,.30); }
+.bh-title { display: flex; align-items: baseline; gap: 14px; }
+.bh-station { font-size: 27px; font-weight: 700; letter-spacing: 1px;
+  text-shadow: 0 0 8px rgba(255,174,38,.45); }
+.bh-crs { font-size: 13px; color: rgba(255,174,38,.6); }
+.bh-clock { font-size: 27px; font-weight: 700; font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px rgba(255,174,38,.45); }
+.nrcc { background: rgba(255,174,38,.10); color: #ffc777; font-size: 13px;
+  padding: 8px 22px; border-bottom: 1px solid rgba(255,174,38,.2); }
+.board { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.board-rows { flex: 1; overflow-y: auto; }
+.brow { display: grid; grid-template-columns: 96px 1fr 64px 140px; gap: 12px;
+  align-items: center; padding: 11px 22px; border-bottom: 1px solid rgba(255,174,38,.12); }
+.brow.head { color: rgba(255,174,38,.55); font-size: 12px; letter-spacing: 2px;
+  text-transform: uppercase; padding: 8px 22px; }
+.brow .b-time { font-size: 27px; font-weight: 700; letter-spacing: 1px;
+  font-variant-numeric: tabular-nums; }
+.brow.head .b-time { font-size: 12px; font-weight: 400; letter-spacing: 2px; }
+.b-dest .dst { font-size: 23px; font-weight: 700; letter-spacing: .5px; }
+.b-dest .calling { font-size: 12px; color: rgba(255,174,38,.55); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-plat { font-size: 23px; font-weight: 700; text-align: center; }
+.b-exp { font-size: 21px; font-weight: 700; text-align: right; }
+.brow.head .b-dest, .brow.head .b-plat, .brow.head .b-exp { font-size: 12px; font-weight: 400; }
+.exp-ontime { color: #57e06a; }          /* "On time" — green, as on modern CIS boards */
+.exp-late { color: #ffd24a; }
+.exp-cancelled { color: #ff6a5a; }
+.brow.is-cancelled .b-dest .dst { color: rgba(255,174,38,.4); text-decoration: line-through; }
