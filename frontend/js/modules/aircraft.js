@@ -23,11 +23,11 @@ export const aircraft = {
       ctx.config?.location?.lon ?? -0.1278,
     ];
     const map = L.map("ac-map", { attributionControl: false, zoomControl: false })
-      .setView(center, 9);
+      .setView(center, 11);
     L.control.zoom({ position: "bottomright" }).addTo(map);  // keep clear of Back button
-    // Dark base map (matches the working-light setup).
+    // Dark base map, lightened via CSS filter so it isn't near-black.
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", {
-      maxZoom: 18,
+      maxZoom: 18, className: "basemap-lite",
     }).addTo(map);
     L.circleMarker(center, { radius: 6, color: "#4ea3ff", fillOpacity: 1 })
       .addTo(map).bindTooltip("You");
@@ -58,8 +58,7 @@ export const aircraft = {
 
     for (const ac of data.aircraft) {
       seen.add(ac.hex);
-      const html = `<div class="plane-icon" style="transform:rotate(${ac.heading || 0}deg)">✈️</div>`;
-      const icon = L.divIcon({ html, className: "", iconSize: [24, 24] });
+      const icon = this._iconFor(ac);
       let m = this._markers[ac.hex];
       if (m) { m.setLatLng([ac.lat, ac.lon]); m.setIcon(icon); }
       else {
@@ -94,10 +93,23 @@ export const aircraft = {
     }
   },
 
+  // ✈ text glyph (recolourable, unlike the multicolour emoji). Nose points NW (~315°),
+  // so add 45° to make heading 0 point north (up). Selected/nearest plane is yellow.
+  _iconFor(ac) {
+    const sel = ac.hex === this._selected;
+    const html = `<div class="plane-icon ${sel ? "sel" : ""}" `
+      + `style="transform:rotate(${(ac.heading || 0) + 45}deg)">✈</div>`;
+    return L.divIcon({ html, className: "", iconSize: [26, 26] });
+  },
+
   _select(el, ctx, hex) {
     this._selected = hex;
     el.querySelectorAll(".ac-row").forEach((r) =>
       r.classList.toggle("sel", r.dataset.hex === hex));
+    for (const ac of this._data?.aircraft || []) {     // repaint markers (yellow = selected)
+      const m = this._markers[ac.hex];
+      if (m) m.setIcon(this._iconFor(ac));
+    }
     this._renderDetail(el);
     this._loadPhoto(el, ctx, hex);
     const ac = (this._data?.aircraft || []).find((a) => a.hex === hex);
@@ -111,11 +123,19 @@ export const aircraft = {
     if (!sky || !d) return;
     if (!ac) { sky.innerHTML = ""; d.innerHTML = `<div class="muted">No selection</div>`; return; }
 
-    // "Where to look" panel.
+    // "Where to look" panel — direction, elevation and distance carry equal weight.
     sky.innerHTML = `
-      <div class="look-big">${ac.compass || "?"} <span class="deg">${ac.azimuth ?? "?"}°</span></div>
-      <div class="look-sub">${ac.elevation ?? 0}° up · ${ac.distance_mi} mi away</div>`;
+      <div class="look-grid">
+        <div class="look-item"><div class="lk">Look</div>
+          <div class="lv">${ac.compass || "?"} <span class="u">${ac.azimuth ?? "?"}°</span></div></div>
+        <div class="look-item"><div class="lk">Up</div>
+          <div class="lv">${ac.elevation ?? 0}<span class="u">°</span></div></div>
+        <div class="look-item"><div class="lk">Distance</div>
+          <div class="lv">${ac.distance_mi}<span class="u"> mi</span></div></div>
+      </div>`;
 
+    // Avoid printing the registration twice (private flights broadcast reg as callsign).
+    const regShown = ac.registration && ac.registration !== (ac.callsign || "");
     d.innerHTML = `
       <div class="ac-flight">
         <span class="cs">${ac.callsign || ac.hex}</span>
@@ -123,7 +143,7 @@ export const aircraft = {
       </div>
       <div class="ac-route" id="ac-route"><span class="muted">looking up route…</span></div>
       <div class="grid">
-        <div class="k">Aircraft</div><div>${ac.type || "—"}${ac.registration ? " · " + ac.registration : ""}</div>
+        <div class="k">Aircraft</div><div>${ac.type || "—"}${regShown ? " · " + ac.registration : ""}</div>
         <div class="k">Altitude</div><div>${ac.altitude != null ? ac.altitude.toLocaleString() + " ft" : "—"}</div>
         <div class="k">Speed</div><div>${ac.speed != null ? Math.round(ac.speed) + " kt" : "—"}</div>
         <div class="k">Heading</div><div>${ac.heading != null ? Math.round(ac.heading) + "°" : "—"}</div>

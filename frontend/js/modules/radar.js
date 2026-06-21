@@ -9,6 +9,7 @@ export const radar = {
       <div id="radar-map" class="full-map"></div>
       <div class="rain-panel" id="rain-panel"><span class="muted">Checking rain…</span></div>`;
 
+    this._units = ctx.config?.units || {};
     const center = [
       ctx.config?.location?.lat ?? 51.5074,
       ctx.config?.location?.lon ?? -0.1278,
@@ -17,7 +18,7 @@ export const radar = {
       .setView(center, 9);                       // zoomed in on your location
     L.control.zoom({ position: "bottomright" }).addTo(map);
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", {
-      maxZoom: 18,
+      maxZoom: 18, className: "basemap-lite",     // lightened via CSS so it isn't near-black
     }).addTo(map);
     // marker + range rings (10/25/50 km) for a sense of distance
     L.circleMarker(center, { radius: 6, color: "#4ea3ff", fillOpacity: 1 }).addTo(map);
@@ -61,6 +62,14 @@ export const radar = {
     this._layer = layer;
   },
 
+  _dist(km) {
+    if (km == null) return "";
+    const u = this._units?.distance || "km";
+    if (u === "mi") return (km * 0.621371).toFixed(1) + " mi";
+    if (u === "nm") return (km / 1.852).toFixed(1) + " nm";
+    return km.toFixed(1) + " km";
+  },
+
   _renderPanel(el, fc, stale) {
     const km = fc.nearest_km;
     let head, line, cls;
@@ -72,16 +81,16 @@ export const radar = {
       case "approaching":
         cls = "r-soon"; head = `🌧️ Rain approaching`;
         line = fc.minutes_until != null
-          ? `<span class="soon">~${fc.minutes_until} min away</span> · ${km} km`
-          : `<span class="soon">~${km} km away, closing in</span>`;
+          ? `<span class="soon">~${fc.minutes_until} min away</span> · ${this._dist(km)}`
+          : `<span class="soon">~${this._dist(km)} away, closing in</span>`;
         break;
       case "nearby":
         cls = "r-near"; head = `🌦️ Rain nearby`;
-        line = `<span class="near">~${km} km away</span>`;
+        line = `<span class="near">~${this._dist(km)} away</span>`;
         break;
       default:
         cls = "r-dry"; head = `☀️ Dry`;
-        line = `<span class="muted">No rain within ${Math.round(fc.nearest_km ?? 60)} km</span>`;
+        line = `<span class="muted">No rain nearby</span>`;
     }
     el.className = `rain-panel ${cls}`;
     el.innerHTML = `

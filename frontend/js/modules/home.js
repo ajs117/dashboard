@@ -3,7 +3,7 @@
 const WMO_EMOJI = {
   0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️",
   51: "🌦️", 53: "🌦️", 55: "🌧️", 61: "🌦️", 63: "🌧️", 65: "🌧️",
-  71: "🌨️", 73: "🌨️", 75: "❄️", 80: "🌦️", 81: "🌧️", 82: "⛈️",
+  71: "🌨️", 73: "🌨️", 75: "❄️", 80: "🌦️", 81: "🌧️", 82: "🌧️",
   95: "⛈️", 96: "⛈️", 99: "⛈️",
 };
 const MOON_EMOJI = ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"];
@@ -30,6 +30,7 @@ function tzAbbr(date, tz) {
 
 export const home = {
   _timer: null, _wxTimer: null, _stkTimer: null, _carTimer: null, _carIdx: 0,
+  _tkRAF: null, _tkOff: 0,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -106,6 +107,26 @@ export const home = {
     };
     await loadStocks();
     this._stkTimer = setInterval(loadStocks, (cfg.refresh?.stocks || 300) * 1000);
+    this._startTicker(el);
+  },
+
+  // JS-driven marquee (CSS keyframe animation doesn't tick reliably under WPE/cog).
+  _startTicker(el) {
+    cancelAnimationFrame(this._tkRAF);
+    this._tkOff = 0;
+    let last = performance.now();
+    const speed = 45;  // px/sec
+    const step = (now) => {
+      const tk = el.querySelector("#ticker");
+      if (!tk) return;                       // view replaced -> stop
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      const half = (tk.scrollWidth / 2) || 1;
+      this._tkOff -= speed * dt;
+      if (this._tkOff <= -half) this._tkOff += half;
+      tk.style.transform = `translateX(${this._tkOff}px)`;
+      this._tkRAF = requestAnimationFrame(step);
+    };
+    this._tkRAF = requestAnimationFrame(step);
   },
 
   _renderCarousel(el) {
@@ -132,6 +153,7 @@ export const home = {
     clearInterval(this._wxTimer);
     clearInterval(this._stkTimer);
     clearInterval(this._carTimer);
+    cancelAnimationFrame(this._tkRAF);
   },
 };
 
@@ -156,7 +178,8 @@ function renderWeather(el, w) {
     </div>
     <div class="wx-stats">
       <div class="item"><span class="k">Dew point</span><span class="v">${Math.round(c.dew_point)}${unit}</span></div>
-      <div class="item"><span class="k">Wind</span><span class="v">${Math.round(c.wind_speed)} ${windUnit} ${c.wind_compass || ""}${gust}</span></div>
+      <div class="item"><span class="k">Humidity</span><span class="v">${c.humidity != null ? Math.round(c.humidity) + "%" : "—"}</span></div>
+      <div class="item" style="flex:1.7"><span class="k">Wind</span><span class="v">${Math.round(c.wind_speed)} ${windUnit} ${c.wind_compass || ""}${gust}</span></div>
     </div>
     <div class="wx-astro">
       <div class="item">🌅 ${fmtClock(w.sun?.sunrise)}</div>

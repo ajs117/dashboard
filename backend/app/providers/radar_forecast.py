@@ -24,7 +24,8 @@ _RAIN_ALPHA = 25            # tile alpha at/above this = precipitation
 _AREA_ZOOM = 5              # lower zoom -> one tile covers the whole search area
 _BOX_PX = 20               # search radius in pixels (~60 km at z5, UK latitude)
 _MAX_FRAMES = 5            # most recent frames to analyse (~40 min of history)
-_NEAR_KM = 60.0           # only care about rain within this distance
+_NEAR_KM = 30.0           # rain this close (or closer) counts as "nearby"
+_APPROACH_KM = 65.0       # rain closing in from up to here can still be "approaching"
 
 
 def latlon_to_tile(lat: float, lon: float, z: int) -> tuple[int, int, int, int]:
@@ -127,12 +128,12 @@ def build_forecast(series: list[dict], now: float) -> dict[str, Any]:
 
     if raining_now:
         status = "raining"
-    elif nearest is None or nearest > _NEAR_KM:
-        status = "dry"
-    elif approaching:
+    elif approaching and nearest is not None and nearest <= _APPROACH_KM:
         status = "approaching"
-    else:
+    elif nearest is not None and nearest <= _NEAR_KM:
         status = "nearby"
+    else:
+        status = "dry"
 
     return {
         "raining_now": raining_now,
