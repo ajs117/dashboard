@@ -134,8 +134,10 @@ export const aircraft = {
           <div class="lv">${ac.distance_mi}<span class="u"> mi</span></div></div>
       </div>`;
 
-    // Avoid printing the registration twice (private flights broadcast reg as callsign).
-    const regShown = ac.registration && ac.registration !== (ac.callsign || "");
+    // Avoid printing the registration twice (private flights broadcast reg as callsign,
+    // e.g. callsign "GGBVN" vs reg "G-GBVN") — compare alphanumerics only.
+    const norm = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const regShown = ac.registration && norm(ac.registration) !== norm(ac.callsign);
     d.innerHTML = `
       <div class="ac-flight">
         <span class="cs">${ac.callsign || ac.hex}</span>

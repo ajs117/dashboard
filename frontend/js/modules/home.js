@@ -20,6 +20,16 @@ const dayName = (iso) => {
   try { return new Date(iso).toLocaleDateString("en-GB", { weekday: "short" }); }
   catch { return iso; }
 };
+// Open-Meteo's *daily* weather_code is the worst moment of the day, so a 2%-chance
+// afternoon shower flips a sunny day to ⛈️. Downgrade wet icons when the day's
+// precip probability is actually low.
+function forecastIcon(code, pp) {
+  if (pp == null || code < 51) return WMO_EMOJI[code] ?? "•";
+  if (code >= 71 && code <= 86) return WMO_EMOJI[code] ?? "🌨️";  // keep snow as-is
+  if (pp >= 60) return WMO_EMOJI[code] ?? "🌧️";
+  if (pp >= 35) return "🌦️";
+  return code >= 95 ? "🌤️" : "⛅";
+}
 function tzAbbr(date, tz) {
   try {
     const p = new Intl.DateTimeFormat("en-GB", { timeZoneName: "short", timeZone: tz })
@@ -190,7 +200,7 @@ function renderWeather(el, w) {
       ${days.map((d) => `
         <div class="wx-day">
           <div class="d">${dayName(d.date)}</div>
-          <div style="font-size:22px">${WMO_EMOJI[d.code] ?? "•"}</div>
+          <div style="font-size:22px">${forecastIcon(d.code, d.precip_prob)}</div>
           <div class="hi">${Math.round(d.tmax)}°</div>
           <div class="muted">${Math.round(d.tmin)}°</div>
           ${d.precip_prob != null ? `<div class="muted">💧${d.precip_prob}%</div>` : ""}
