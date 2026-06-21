@@ -15,6 +15,14 @@ export async function api(path) {
   return res.json();
 }
 
+// Fast, accurate tap for nav targets: fire on first contact (pointerdown), before a
+// cheap touch panel's coordinate drifts during the hold, and preventDefault to suppress
+// the synthesized click so we don't "ghost-tap" whatever lands under the point next.
+export function tap(el, fn) {
+  if (!el) return;
+  el.addEventListener("pointerdown", (e) => { e.preventDefault(); fn(e); });
+}
+
 // "stale data" badge (top-right).
 export function setStale(stale, msg) {
   const el = document.getElementById("status");
@@ -45,7 +53,7 @@ async function navigate(route) {
   view().innerHTML = "";
   current = MODULES[route];
   const ctx = {
-    config: state.config, api, setStale, go,
+    config: state.config, api, setStale, go, tap,
     isCurrent: () => myToken === navToken,   // false once superseded
   };
   try {
@@ -63,7 +71,7 @@ export function go(route) {
 }
 
 async function boot() {
-  backBtn().addEventListener("click", () => go("home"));
+  tap(backBtn(), () => go("home"));
   window.addEventListener("hashchange", () =>
     navigate(location.hash.replace("#", "") || "home")
   );

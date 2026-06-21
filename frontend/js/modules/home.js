@@ -70,7 +70,7 @@ export const home = {
       </div>`;
 
     el.querySelectorAll(".app-tile").forEach((b) =>
-      b.addEventListener("click", () => ctx.go(b.dataset.route)));
+      ctx.tap(b, () => ctx.go(b.dataset.route)));
 
     const bigTime = el.querySelector("#big-time");
     const bigDate = el.querySelector("#big-date");

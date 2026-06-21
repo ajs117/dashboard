@@ -12,7 +12,8 @@
   --bad: #f85149;
 }
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation; }   /* kill the 300ms double-tap delay -> snappier taps */
 html, body {
   margin: 0; width: 1024px; height: 600px; overflow: hidden;
   background: var(--bg); color: var(--fg);
@@ -55,7 +56,7 @@ html, body {
 
 /* App launcher tiles */
 .launcher { grid-column: 1; grid-row: 2; display: grid;
-            grid-template-columns: repeat(3, 1fr); gap: 14px; }
+            grid-template-columns: repeat(3, 1fr); gap: 26px; }
 .app-tile {
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
   color: var(--fg); display: flex; flex-direction: column; align-items: center;
@@ -172,12 +173,12 @@ html, body {
   color: #ffae26;
   font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, ui-monospace, monospace; }
 .board-head { display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 22px 12px 120px; border-bottom: 2px solid rgba(255,174,38,.30); }
+  padding: 20px 24px 18px 150px; border-bottom: 2px solid rgba(255,174,38,.30); }
 .bh-title { display: flex; align-items: baseline; gap: 14px; }
-.bh-station { font-size: 27px; font-weight: 700; letter-spacing: 1px;
+.bh-station { font-size: 31px; font-weight: 700; letter-spacing: 1px;
   text-shadow: 0 0 8px rgba(255,174,38,.45); }
-.bh-crs { font-size: 13px; color: rgba(255,174,38,.6); }
-.bh-clock { font-size: 27px; font-weight: 700; font-variant-numeric: tabular-nums;
+.bh-crs { font-size: 14px; color: rgba(255,174,38,.6); }
+.bh-clock { font-size: 38px; font-weight: 700; font-variant-numeric: tabular-nums;
   text-shadow: 0 0 8px rgba(255,174,38,.45); }
 .nrcc { background: rgba(255,174,38,.10); color: #ffc777; font-size: 13px;
   padding: 8px 22px; border-bottom: 1px solid rgba(255,174,38,.2); }
