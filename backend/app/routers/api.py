@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException
 from .. import config
 from ..cache import cache
 from ..providers import (
-    aircraft, facts, news, photos, radar, radar_forecast, route, stocks, trains, weather,
+    aircraft, facts, govee, news, photos, radar, radar_forecast, route, stocks,
+    trains, weather,
 )
 
 router = APIRouter(prefix="/api", tags=["data"])
@@ -96,3 +97,19 @@ async def get_facts() -> dict[str, Any]:
     cfg = config.get()
     ttl = _ttls().get("facts", 3600)
     return await cache.get_or_fetch("facts", ttl, lambda: facts.fetch(cfg))
+
+
+@router.get("/indoor")
+async def get_indoor() -> dict[str, Any]:
+    cfg = config.get()
+    ttl = _ttls().get("indoor", 60)
+    return await cache.get_or_fetch("indoor", ttl, lambda: govee.fetch(cfg))
+
+
+@router.get("/govee/devices")
+async def get_govee_devices() -> dict[str, Any]:
+    # Helper to discover sku + device id once an API key is set.
+    key = (config.get().get("govee", {}) or {}).get("api_key")
+    if not key:
+        raise HTTPException(status_code=400, detail="govee.api_key is not set in config")
+    return await govee.list_devices(key)

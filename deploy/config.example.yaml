@@ -54,6 +54,16 @@ aircraft:
 radar:
   forecast_zoom: 7       # tile zoom to sample rain over your location (RainViewer caps at 7)
 
+# --- Govee Wi-Fi thermo-hygrometer (indoor temp/humidity) ---
+govee:
+  enabled: false
+  api_key: ""            # Govee Home app -> Settings -> Apply for API Key
+  sku: ""                # device model, e.g. "H5179"  (see GET /api/govee/devices)
+  device: ""             # device id/MAC          (see GET /api/govee/devices)
+  reports_fahrenheit: true   # Govee sensors report °F; converted to your units.
+                             # When enabled, the live reading overrides the headline
+                             # temperature + humidity (Open-Meteo is only an estimate).
+
 # --- Cache TTLs (seconds) ---
 cache:
   weather: 600
@@ -63,6 +73,7 @@ cache:
   stocks: 300
   news: 900             # BBC UK+World headlines
   facts: 3600           # random trivia (Useless Facts API)
+  indoor: 60            # Govee thermo-hygrometer poll
 
 # --- Frontend refresh intervals (seconds) ---
 refresh:

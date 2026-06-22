@@ -73,7 +73,7 @@ export const home = {
   _timer: null, _wxTimer: null, _stkTimer: null, _carTimer: null, _carIdx: 0,
   _tkRAF: null, _tkOff: 0, _carKey: null,
   _feed: [], _feedIdx: 0, _feedTimer: null, _newsTimer: null, _factsTimer: null,
-  _trkTimer: null, _news: [], _facts: [],
+  _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -186,6 +186,30 @@ export const home = {
     if (ctx.isCurrent && !ctx.isCurrent()) return;
     this._trkTimer = setInterval(loadTrackers, 60000);
 
+    // Govee sensor = the ACTUAL measured temp/humidity at your location. When enabled it
+    // overrides the model's headline temperature + humidity (Open-Meteo is only an
+    // estimate), tagged "live". Re-applied after every weather re-render.
+    const applySensor = () => {
+      const s = this._sensor;
+      if (!s || !s.enabled) return;
+      const useF = (cfg.units?.temperature === "fahrenheit");
+      const tEl = el.querySelector("#wx-temp");
+      const hEl = el.querySelector("#wx-humidity");
+      const mEl = el.querySelector("#wx-live");
+      const t = useF ? s.temperature_f : s.temperature_c;
+      if (tEl && t != null) tEl.textContent = Math.round(t) + (useF ? "°F" : "°C");
+      if (hEl && s.humidity != null) hEl.textContent = s.humidity + "%";
+      if (mEl) mEl.textContent = s.online === false ? "● sensor offline" : "● live";
+    };
+    const loadSensor = async () => {
+      try {
+        const env = await ctx.api("/api/indoor");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        this._sensor = env.data;
+        applySensor();
+      } catch (e) { /* keep the model values */ }
+    };
+
     const loadWeather = async () => {
       try {
         const env = await ctx.api("/api/weather");
@@ -194,6 +218,7 @@ export const home = {
         if (!wx) return;
         ctx.setStale(env.stale, "weather");
         renderWeather(wx, env.data);
+        applySensor();                        // re-apply the live reading after a re-render
       } catch (e) {
         const wx = el.querySelector("#wx");
         if (wx) wx.innerHTML = `<div class="err">Weather unavailable</div>`;
@@ -202,6 +227,9 @@ export const home = {
     await loadWeather();
     if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._wxTimer = setInterval(loadWeather, (cfg.refresh?.weather || 600) * 1000);
+    await loadSensor();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;
+    this._indoorTimer = setInterval(loadSensor, (cfg.refresh?.indoor || 60) * 1000);
 
     const loadStocks = async () => {
       try {
@@ -322,14 +350,14 @@ function renderWeather(el, w) {
     <div class="wx-now">
       <div style="font-size:60px">${emoji}</div>
       <div>
-        <div class="wx-temp">${t(c.temperature)}</div>
+        <div class="wx-temp" id="wx-temp">${t(c.temperature)}</div>
         <div class="wx-text">${esc(c.text || "")} · ${esc(w.label || "")}</div>
-        <div class="wx-sub">Feels ${t(c.apparent)}</div>
+        <div class="wx-sub">Feels ${t(c.apparent)} <span class="wx-live" id="wx-live"></span></div>
       </div>
     </div>
     <div class="wx-stats">
       <div class="item"><span class="k">Dew point</span><span class="v">${t(c.dew_point)}</span></div>
-      <div class="item"><span class="k">Humidity</span><span class="v">${c.humidity != null ? Math.round(c.humidity) + "%" : "—"}</span></div>
+      <div class="item"><span class="k">Humidity</span><span class="v" id="wx-humidity">${c.humidity != null ? Math.round(c.humidity) + "%" : "—"}</span></div>
       <div class="item" style="flex:1.7"><span class="k">Wind</span><span class="v">${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} ${windUnit} ${esc(c.wind_compass || "")}${gust}</span></div>
     </div>
     <div class="wx-astro">
