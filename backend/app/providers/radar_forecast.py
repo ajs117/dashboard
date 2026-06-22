@@ -1,177 +1,99 @@
-"""Rain prediction for the observer's location.
+"""Rain nowcast for the observer's exact location.
 
-RainViewer gives past frames plus (sometimes) short nowcast frames. Sampling only the
-exact point misses rain that is clearly visible nearby and heading in, so we sample a
-box around the location across the most recent frames and:
-  - report whether it's raining *at* the location now,
-  - find the nearest rain and how far away it is,
-  - estimate an arrival time from how the nearest-rain distance is changing.
+Driven by Open-Meteo's real precipitation numbers (mm) — current + 15-minutely — NOT by
+sampling radar-tile pixels. (The old tile method read the PNG's alpha/opacity as if it
+were intensity, so any precipitation showed as "heavy". Open-Meteo gives an actual mm
+value at the point, which is what "is it raining here, and when does it start/stop" needs.)
 
-Tile maths is pure (unit-tested); pixel sampling needs Pillow.
+The RainViewer tiles are still used for the visual map (see providers/radar.py); this
+module only produces the text panel: raining now + intensity, minutes to start/stop, and
+the wind direction the weather is coming from.
 """
 from __future__ import annotations
 
-import asyncio
-import io
-import math
-import time
 from typing import Any
 
 from . import client
-from . import radar as radar_provider
+from .geo import compass16
 
-_RAIN_ALPHA = 25            # tile alpha at/above this = precipitation
-_AREA_ZOOM = 5              # lower zoom -> one tile covers the whole search area
-_BOX_PX = 20               # search radius in pixels (~60 km at z5, UK latitude)
-_MAX_FRAMES = 5            # most recent frames to analyse (~40 min of history)
-_NEAR_KM = 30.0           # rain this close (or closer) counts as "nearby"
-_APPROACH_KM = 65.0       # rain closing in from up to here can still be "approaching"
+_URL = "https://api.open-meteo.com/v1/forecast"
+_RAIN_MM_H = 0.1          # mm/hour at/above this counts as "raining"
+_STEPS = 8               # 15-min steps to look ahead (8 = next 2 hours)
 
 
-def latlon_to_tile(lat: float, lon: float, z: int) -> tuple[int, int, int, int]:
-    """Web-Mercator tile (x, y) at zoom z plus the (px, py) pixel within a 256px tile."""
-    n = 2 ** z
-    x = (lon + 180.0) / 360.0 * n
-    lat_r = math.radians(lat)
-    y = (1.0 - math.asinh(math.tan(lat_r)) / math.pi) / 2.0 * n
-    tx, ty = int(x), int(y)
-    px = min(255, max(0, int((x - tx) * 256)))
-    py = min(255, max(0, int((y - ty) * 256)))
-    return tx, ty, px, py
+def classify_rate(mm_per_h: float) -> str:
+    """UK Met-style rain rate bands (mm/hour)."""
+    if mm_per_h < _RAIN_MM_H:
+        return "none"
+    if mm_per_h < 2.5:
+        return "light"
+    if mm_per_h < 7.6:
+        return "moderate"
+    return "heavy"
 
 
-def classify(alpha: int) -> tuple[str, int]:
-    """Map a tile pixel's alpha to a precip level."""
-    if alpha < _RAIN_ALPHA:
-        return "none", 0
-    if alpha < 90:
-        return "light", 1
-    if alpha < 170:
-        return "moderate", 2
-    return "heavy", 3
+def build_forecast(precip: list[float], prob: list[int] | None,
+                   wind_dir: float | None, step_min: int = 15) -> dict[str, Any]:
+    """Pure: turn a 15-minutely precip series (mm/step, index 0 = now) into a nowcast."""
+    precip = [float(p or 0.0) for p in (precip or [])]
+    prob = prob or []
+    n = len(precip)
+    per_hour = 60.0 / step_min
 
+    mm_now = precip[0] if n else 0.0
+    level = classify_rate(mm_now * per_hour)
+    raining = level != "none"
 
-def km_per_pixel(lat: float, z: int) -> float:
-    return 156543.03392 * math.cos(math.radians(lat)) / (2 ** z) / 1000.0
-
-
-_UNKNOWN = {"center_alpha": None, "nearest_km": None, "center_level": "unknown"}
-
-
-def _scan(content: bytes, lat: float, px: int, py: int) -> dict[str, Any]:
-    """CPU-bound: decode the tile and scan the box. Runs in a worker thread."""
-    from PIL import Image  # lazy import so the app starts without Pillow
-
-    try:
-        img = Image.open(io.BytesIO(content)).convert("RGBA")
-    except Exception:  # noqa: BLE001
-        return dict(_UNKNOWN)
-    pix = img.load()  # one pixel-access object beats thousands of getpixel() calls
-    kmpp = km_per_pixel(lat, _AREA_ZOOM)
-    center_alpha = 0
-    nearest_px = None
-    for dy in range(-_BOX_PX, _BOX_PX + 1):
-        y = py + dy
-        if not (0 <= y <= 255):
-            continue
-        for dx in range(-_BOX_PX, _BOX_PX + 1):
-            x = px + dx
-            if not (0 <= x <= 255):
-                continue
-            a = pix[x, y][3]
-            if abs(dx) <= 1 and abs(dy) <= 1:
-                center_alpha = max(center_alpha, a)
-            if a >= _RAIN_ALPHA:
-                d = math.hypot(dx, dy)
-                if nearest_px is None or d < nearest_px:
-                    nearest_px = d
-    return {
-        "center_alpha": center_alpha,
-        "center_level": classify(center_alpha)[0],
-        "nearest_km": round(nearest_px * kmpp, 1) if nearest_px is not None else None,
-    }
-
-
-async def _sample_area(host: str, path: str, lat: float, lon: float) -> dict[str, Any]:
-    """Fetch one frame's tile and sample a box around the location.
-
-    Returns center precip + nearest-rain distance (km) within the search radius. The
-    image decode + pixel scan are CPU-bound, so they run off the event loop (important
-    on a single-worker Pi Zero 2W).
-    """
-    tx, ty, px, py = latlon_to_tile(lat, lon, _AREA_ZOOM)
-    url = f"{host}{path}/256/{_AREA_ZOOM}/{tx}/{ty}/4/1_0.png"
-    try:
-        r = await client().get(url)
-        r.raise_for_status()
-        content = r.content
-    except Exception:  # noqa: BLE001
-        return dict(_UNKNOWN)
-    return await asyncio.to_thread(_scan, content, lat, px, py)
-
-
-def build_forecast(series: list[dict], now: float) -> dict[str, Any]:
-    """Pure: turn the per-frame area samples into a now/approaching summary.
-
-    `series` is oldest->newest; each item: {time, center_alpha, nearest_km}.
-    """
-    if not series:
-        return {"raining_now": False, "level": "none", "status": "unknown",
-                "nearest_km": None, "minutes_until": None, "series": []}
-
-    cur = series[-1]
-    raining_now = bool(cur.get("center_alpha") and cur["center_alpha"] >= _RAIN_ALPHA)
-    level = classify(cur.get("center_alpha") or 0)[0]
-    nearest = cur.get("nearest_km")
-
-    # Approach speed: linear fit of nearest_km vs minutes over frames that saw rain.
-    pts = [(s["time"], s["nearest_km"]) for s in series if s.get("nearest_km") is not None]
-    minutes_until = None
-    approaching = False
-    if len(pts) >= 2:
-        t0 = pts[0][0]
-        xs = [(t - t0) / 60.0 for t, _ in pts]
-        ys = [k for _, k in pts]
-        n = len(xs)
-        mx, my = sum(xs) / n, sum(ys) / n
-        den = sum((x - mx) ** 2 for x in xs)
-        slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den if den else 0.0
-        if slope < -0.2 and nearest is not None and nearest > 0:   # closing in
-            approaching = True
-            eta = nearest / -slope
-            if 0 < eta <= 120:
-                minutes_until = round(eta)
-
-    if raining_now:
-        status = "raining"
-    elif approaching and nearest is not None and nearest <= _APPROACH_KM:
-        status = "approaching"
-    elif nearest is not None and nearest <= _NEAR_KM:
-        status = "nearby"
+    start_idx = stop_idx = None
+    if raining:
+        for i in range(1, n):
+            if precip[i] * per_hour < _RAIN_MM_H:
+                stop_idx = i
+                break
     else:
-        status = "dry"
+        for i in range(1, n):
+            if precip[i] * per_hour >= _RAIN_MM_H:
+                start_idx = i
+                break
 
+    status = "raining" if raining else ("starting" if start_idx is not None else "dry")
+    timeline = [
+        {"mm": round(precip[i], 2), "prob": (prob[i] if i < len(prob) else None)}
+        for i in range(n)
+    ]
     return {
-        "raining_now": raining_now,
+        "raining_now": raining,
         "level": level,
-        "status": status,                 # raining | approaching | nearby | dry
-        "nearest_km": nearest,
-        "minutes_until": minutes_until,
-        "series": series,
+        "status": status,
+        "minutes_until_start": start_idx * step_min if start_idx is not None else None,
+        "minutes_until_stop": stop_idx * step_min if stop_idx is not None else None,
+        "from_compass": compass16(wind_dir) if wind_dir is not None else None,
+        "wind_dir": wind_dir,
+        "peak_mm": round(max(precip), 2) if precip else 0.0,
+        "max_prob": max(prob) if prob else None,
+        "timeline": timeline,
     }
 
 
 async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
     loc = cfg.get("location", {})
-    lat, lon = float(loc.get("lat")), float(loc.get("lon"))
-
-    rdata = await radar_provider.fetch(cfg)
-    frames = rdata.get("frames", [])[-_MAX_FRAMES:]
-
-    host = rdata.get("host")
-    samples = await asyncio.gather(*[_sample_area(host, f["path"], lat, lon) for f in frames])
-    series = [{"time": f["time"], **s} for f, s in zip(frames, samples)]
-
-    out = build_forecast(series, time.time())
+    params = {
+        "latitude": loc.get("lat"),
+        "longitude": loc.get("lon"),
+        "timezone": loc.get("timezone", "auto"),
+        "current": "precipitation,wind_direction_10m",
+        "minutely_15": "precipitation,precipitation_probability",
+        "forecast_minutely_15": _STEPS,
+    }
+    resp = await client().get(_URL, params=params)
+    resp.raise_for_status()
+    raw = resp.json()
+    m = raw.get("minutely_15", {}) or {}
+    cur = raw.get("current", {}) or {}
+    out = build_forecast(
+        m.get("precipitation") or [],
+        m.get("precipitation_probability") or [],
+        cur.get("wind_direction_10m"),
+    )
     out["location"] = loc.get("label", "")
     return out

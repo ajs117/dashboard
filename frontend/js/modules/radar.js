@@ -71,55 +71,48 @@ export const radar = {
     this._layer = layer;
   },
 
-  _dist(km) {
-    if (km == null) return "";
-    const u = this._units?.distance || "km";
-    if (u === "mi") return (km * 0.621371).toFixed(1) + " mi";
-    if (u === "nm") return (km / 1.852).toFixed(1) + " nm";
-    return km.toFixed(1) + " km";
+  _fromDir(fc) {
+    return fc.from_compass ? ` · from the ${esc(fc.from_compass)}` : "";
   },
 
   _renderPanel(el, fc, stale) {
     if (!fc) { el.innerHTML = `<span class="muted">Forecast unavailable</span>`; return; }
-    const km = fc.nearest_km;
     let head, line, cls;
     switch (fc.status) {
       case "raining":
-        cls = "r-now"; head = `🌧️ Raining now`;
-        line = `<span class="lvl">${esc(fc.level)}</span>`;
+        cls = "r-now"; head = `🌧️ Raining now <span class="lvl">${esc(fc.level)}</span>`;
+        line = fc.minutes_until_stop != null
+          ? `<span class="soon">Stops in ~${fc.minutes_until_stop} min</span>`
+          : `<span class="muted">Set in for the next couple of hours</span>`;
         break;
-      case "approaching":
-        cls = "r-soon"; head = `🌧️ Rain approaching`;
-        line = fc.minutes_until != null
-          ? `<span class="soon">~${fc.minutes_until} min away</span> · ${this._dist(km)}`
-          : `<span class="soon">~${this._dist(km)} away, closing in</span>`;
-        break;
-      case "nearby":
-        cls = "r-near"; head = `🌦️ Rain nearby`;
-        line = `<span class="near">~${this._dist(km)} away</span>`;
+      case "starting":
+        cls = "r-soon"; head = `🌧️ Rain soon`;
+        line = `<span class="soon">Starts in ~${fc.minutes_until_start} min</span>${this._fromDir(fc)}`;
         break;
       default:
         cls = "r-dry"; head = `☀️ Dry`;
-        line = `<span class="muted">No rain nearby</span>`;
+        line = `<span class="muted">No rain in the next 2 hours${fc.from_compass ? " · wind from the " + esc(fc.from_compass) : ""}</span>`;
     }
     el.className = `rain-panel ${cls}`;
     el.innerHTML = `
       <div class="rain-now">${head}</div>
       <div class="rain-next">${line}</div>
-      ${this._spark(fc.series)}
+      ${this._timeline(fc.timeline)}
       <div class="rain-foot">${esc(fc.location || "")}${stale ? " · delayed" : ""}</div>`;
   },
 
-  _spark(series) {
-    if (!series || !series.length) return "";
-    // bar height from how close the nearest rain is (closer = taller); none = flat
-    const bars = series.map((s) => {
-      let h = 6, on = "off";
-      if (s.center_alpha >= 25) { h = 100; on = "on"; }
-      else if (s.nearest_km != null) { h = Math.max(10, 100 - s.nearest_km * 1.4); on = "near"; }
-      return `<span class="bar ${on}" style="height:${h}%"></span>`;
+  // Labelled next-2h precip chart (bar height = mm of rain per 15 min).
+  _timeline(tl) {
+    if (!tl || !tl.length) return "";
+    const max = Math.max(0.5, ...tl.map((s) => s.mm || 0));   // scale; floor so light rain shows
+    const anyRain = tl.some((s) => (s.mm || 0) > 0);
+    const bars = tl.map((s) => {
+      const mm = s.mm || 0;
+      const h = mm > 0 ? Math.max(8, (mm / max) * 100) : 3;
+      return `<span class="bar ${mm > 0 ? "on" : "off"}" style="height:${h}%"></span>`;
     }).join("");
-    return `<div class="spark" title="rain proximity, past → now">${bars}</div>`;
+    const caption = anyRain ? "Next 2h (rain)" : "Next 2h — no rain expected";
+    return `<div class="spark">${bars}</div><div class="spark-cap">${caption}</div>`;
   },
 
   unmount() {
