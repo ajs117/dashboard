@@ -11,11 +11,21 @@ The response's `payload.capabilities[]` carries instances "sensorTemperature" (�
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from . import client
 
 _BASE = "https://openapi.api.govee.com/router/api/v1"
+
+
+def _dew_point_c(t_c: float, rh: float) -> float | None:
+    """Dew point (°C) from temperature (°C) + relative humidity (%), Magnus formula."""
+    if rh <= 0:
+        return None
+    a, b = 17.625, 243.04
+    g = math.log(rh / 100.0) + a * t_c / (b + t_c)
+    return round(b * g / (a - g), 1)
 
 
 def _num(v: Any) -> float | None:
@@ -38,6 +48,7 @@ def parse_state(js: dict, reports_f: bool = True) -> dict[str, Any]:
     caps = payload.get("capabilities", []) or []
     out: dict[str, Any] = {
         "temperature_c": None, "temperature_f": None, "humidity": None, "online": None,
+        "dew_point_c": None, "dew_point_f": None,
     }
     for c in caps:
         inst = (c.get("instance") or "").lower()
@@ -57,6 +68,12 @@ def parse_state(js: dict, reports_f: bool = True) -> dict[str, Any]:
                 out["humidity"] = round(h, 1)
         elif inst == "online":
             out["online"] = bool(val) if val is not None else None
+    # Derive a live dew point from the measured temp + humidity.
+    if out["temperature_c"] is not None and out["humidity"] is not None:
+        dp = _dew_point_c(out["temperature_c"], out["humidity"])
+        if dp is not None:
+            out["dew_point_c"] = dp
+            out["dew_point_f"] = round(dp * 9 / 5 + 32, 1)
     return out
 
 

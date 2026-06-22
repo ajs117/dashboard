@@ -41,4 +41,17 @@ def test_parse_offline_and_missing():
 
 def test_parse_empty():
     out = govee.parse_state({})
-    assert out == {"temperature_c": None, "temperature_f": None, "humidity": None, "online": None}
+    assert out == {
+        "temperature_c": None, "temperature_f": None, "humidity": None, "online": None,
+        "dew_point_c": None, "dew_point_f": None,
+    }
+
+
+def test_dew_point_derived():
+    js = _caps(
+        {"instance": "sensorTemperature", "state": {"value": 78.44}},   # 25.8°C
+        {"instance": "sensorHumidity", "state": {"value": 46.6}},
+    )
+    out = govee.parse_state(js, reports_f=True)
+    assert out["dew_point_c"] == 13.5      # Magnus formula
+    assert out["dew_point_f"] == 56.3

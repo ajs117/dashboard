@@ -200,9 +200,12 @@ export const home = {
       if (!haveT && !haveH && s.online !== false) return;
       const tEl = el.querySelector("#wx-temp");
       const hEl = el.querySelector("#wx-humidity");
+      const dEl = el.querySelector("#wx-dew");
       const mEl = el.querySelector("#wx-live");
       if (tEl && haveT) tEl.textContent = t.toFixed(1) + (useF ? "°F" : "°C");
       if (hEl && haveH) hEl.textContent = s.humidity + "%";
+      const dp = useF ? s.dew_point_f : s.dew_point_c;   // computed from live temp+humidity
+      if (dEl && dp != null) dEl.textContent = dp.toFixed(1) + (useF ? "°F" : "°C");
       if (mEl) mEl.textContent = s.online === false ? "● sensor offline" : (haveT || haveH ? "● live" : "");
     };
     const loadSensor = async () => {
@@ -362,7 +365,7 @@ function renderWeather(el, w) {
       </div>
     </div>
     <div class="wx-stats">
-      <div class="item"><span class="k">Dew point</span><span class="v">${t(c.dew_point)}</span></div>
+      <div class="item"><span class="k">Dew point</span><span class="v" id="wx-dew">${t(c.dew_point)}</span></div>
       <div class="item"><span class="k">Humidity</span><span class="v" id="wx-humidity">${c.humidity != null ? Math.round(c.humidity) + "%" : "—"}</span></div>
       <div class="item" style="flex:1.7"><span class="k">Wind</span><span class="v">${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} ${windUnit} ${esc(c.wind_compass || "")}${gust}</span></div>
     </div>
