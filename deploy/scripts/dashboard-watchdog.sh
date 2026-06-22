@@ -19,7 +19,7 @@ fi
 # 2) Connectivity -> reconnect Wi-Fi if the link is down.
 if ! ping -c1 -W4 1.1.1.1 >/dev/null 2>&1 && ! ping -c1 -W4 8.8.8.8 >/dev/null 2>&1; then
   log "no connectivity -> Wi-Fi reconnect"
-  iw dev wlan0 set power_save off 2>/dev/null
+  /usr/sbin/iw dev wlan0 set power_save off 2>/dev/null
   nmcli radio wifi off 2>/dev/null; sleep 3; nmcli radio wifi on 2>/dev/null
   sleep 8
   if ! ping -c1 -W4 1.1.1.1 >/dev/null 2>&1; then
