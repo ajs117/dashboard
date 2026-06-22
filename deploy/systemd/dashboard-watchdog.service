@@ -1,0 +1,6 @@
+[Unit]
+Description=Dashboard self-heal (backend / Wi-Fi / memory)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dashboard-watchdog.sh

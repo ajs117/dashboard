@@ -1,0 +1,6 @@
+[Unit]
+Description=Nightly reboot to clear accumulated leaks
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl reboot
