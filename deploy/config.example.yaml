@@ -21,7 +21,6 @@ units:
 world_clocks:
   - { label: "Los Angeles", tz: "America/Los_Angeles" }
   - { label: "Chicago",     tz: "America/Chicago" }
-  - { label: "London",      tz: "Europe/London" }
   - { label: "Paris",       tz: "Europe/Paris" }
   - { label: "Bucharest",   tz: "Europe/Bucharest" }
   - { label: "Mumbai",      tz: "Asia/Kolkata" }
