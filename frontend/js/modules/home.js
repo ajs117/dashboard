@@ -114,9 +114,11 @@ export const home = {
           <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
-    // App carousel: tiles use a movement-thresholded tap so swiping scrolls and a tap opens.
+    // Launch on first contact (pointerdown): the cheap panel reports an accurate press
+    // coordinate but often jumps on release, so firing on release lands on the wrong tile.
+    // Tiles all fit on screen now, so we don't need release-based scroll detection.
     el.querySelectorAll(".app-tile").forEach((b) =>
-      ctx.tapRow(b, () => ctx.go(b.dataset.route)));
+      ctx.tap(b, () => ctx.go(b.dataset.route)));
     const track = el.querySelector("#apps-track");
     const prevA = el.querySelector("#apps-prev"), nextA = el.querySelector("#apps-next");
     ctx.tap(prevA, () => track.scrollBy({ left: -track.clientWidth * 0.7, behavior: "smooth" }));
