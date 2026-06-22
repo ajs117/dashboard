@@ -83,6 +83,7 @@ export const home = {
     this._carKey = null;
     this._feed = [];
     this._feedIdx = 0;
+    this._sensor = null;   // don't carry a previous mount's reading into a fresh card
 
     el.innerHTML = `
       <div class="module home">
@@ -193,13 +194,16 @@ export const home = {
       const s = this._sensor;
       if (!s || !s.enabled) return;
       const useF = (cfg.units?.temperature === "fahrenheit");
+      const t = useF ? s.temperature_f : s.temperature_c;
+      const haveT = t != null, haveH = s.humidity != null;
+      // Nothing to show (e.g. Govee error/empty) -> keep the model values, no "live" tag.
+      if (!haveT && !haveH && s.online !== false) return;
       const tEl = el.querySelector("#wx-temp");
       const hEl = el.querySelector("#wx-humidity");
       const mEl = el.querySelector("#wx-live");
-      const t = useF ? s.temperature_f : s.temperature_c;
-      if (tEl && t != null) tEl.textContent = Math.round(t) + (useF ? "°F" : "°C");
-      if (hEl && s.humidity != null) hEl.textContent = s.humidity + "%";
-      if (mEl) mEl.textContent = s.online === false ? "● sensor offline" : "● live";
+      if (tEl && haveT) tEl.textContent = Math.round(t) + (useF ? "°F" : "°C");
+      if (hEl && haveH) hEl.textContent = s.humidity + "%";
+      if (mEl) mEl.textContent = s.online === false ? "● sensor offline" : (haveT || haveH ? "● live" : "");
     };
     const loadSensor = async () => {
       try {
@@ -330,6 +334,7 @@ export const home = {
     clearInterval(this._newsTimer);
     clearInterval(this._factsTimer);
     clearInterval(this._trkTimer);
+    clearInterval(this._indoorTimer);
     cancelAnimationFrame(this._tkRAF);
   },
 };

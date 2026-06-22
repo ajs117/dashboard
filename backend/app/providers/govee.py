@@ -78,7 +78,14 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
         json=body,
     )
     resp.raise_for_status()
-    data = parse_state(resp.json(), reports_f=g.get("reports_fahrenheit", True))
+    js = resp.json()
+    # Govee returns HTTP 200 even for auth/rate-limit/bad-device errors, signalling them
+    # via an in-body code. Treat those as failures so the cache serves last-good instead
+    # of silently showing a fake "live" reading with no values.
+    code = js.get("code")
+    if code not in (200, None):
+        raise RuntimeError(f"Govee API error code {code}: {js.get('message', '')}")
+    data = parse_state(js, reports_f=g.get("reports_fahrenheit", True))
     data["enabled"] = True
     data["label"] = g.get("label", "Sensor")
     return data
