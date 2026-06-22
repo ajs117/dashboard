@@ -54,7 +54,7 @@ def parse_state(js: dict, reports_f: bool = True) -> dict[str, Any]:
         elif "humidity" in inst:
             h = _num(val)
             if h is not None:
-                out["humidity"] = round(h)
+                out["humidity"] = round(h, 1)
         elif inst == "online":
             out["online"] = bool(val) if val is not None else None
     return out

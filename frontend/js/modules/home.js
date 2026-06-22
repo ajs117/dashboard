@@ -201,7 +201,7 @@ export const home = {
       const tEl = el.querySelector("#wx-temp");
       const hEl = el.querySelector("#wx-humidity");
       const mEl = el.querySelector("#wx-live");
-      if (tEl && haveT) tEl.textContent = Math.round(t) + (useF ? "°F" : "°C");
+      if (tEl && haveT) tEl.textContent = t.toFixed(1) + (useF ? "°F" : "°C");
       if (hEl && haveH) hEl.textContent = s.humidity + "%";
       if (mEl) mEl.textContent = s.online === false ? "● sensor offline" : (haveT || haveH ? "● live" : "");
     };
@@ -355,9 +355,10 @@ function renderWeather(el, w) {
     <div class="wx-now">
       <div style="font-size:60px">${emoji}</div>
       <div>
-        <div class="wx-temp" id="wx-temp">${t(c.temperature)}</div>
+        <div class="wx-temprow"><div class="wx-temp" id="wx-temp">${t(c.temperature)}</div>
+          <span class="wx-live" id="wx-live"></span></div>
         <div class="wx-text">${esc(c.text || "")} · ${esc(w.label || "")}</div>
-        <div class="wx-sub">Feels ${t(c.apparent)} <span class="wx-live" id="wx-live"></span></div>
+        <div class="wx-sub">Feels ${t(c.apparent)}</div>
       </div>
     </div>
     <div class="wx-stats">

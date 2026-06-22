@@ -95,7 +95,8 @@ html, body {
 .wx-temp { font-size: 56px; font-weight: 700; line-height: 1; }
 .wx-text { font-size: 17px; margin-top: 4px; }
 .wx-sub { color: var(--muted); }
-.wx-live { color: var(--good); font-size: 12px; font-weight: 700; }   /* live Govee reading */
+.wx-temprow { display: flex; align-items: baseline; gap: 8px; }
+.wx-live { color: var(--good); font-size: 13px; font-weight: 700; }   /* live Govee reading */
 .wx-live:empty { display: none; }
 .wx-stats { display: flex; gap: 10px; margin: 12px 0 6px; }
 .wx-stats .item { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 8px 12px;
