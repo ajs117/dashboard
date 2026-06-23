@@ -90,7 +90,7 @@ export const radar = {
         line = `<span class="soon">Starts in ~${fc.minutes_until_start} min</span>${this._fromDir(fc)}`;
         break;
       default:
-        cls = "r-dry"; head = `☀️ Dry`;
+        cls = "r-dry"; head = `🌞 Dry`;
         line = `<span class="muted">No rain in the next 2 hours${fc.from_compass ? " · wind from the " + esc(fc.from_compass) : ""}</span>`;
     }
     el.className = `rain-panel ${cls}`;

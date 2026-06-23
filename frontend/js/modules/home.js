@@ -2,10 +2,14 @@
 import { esc } from "../util.js";
 
 const WMO_EMOJI = {
-  0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️",
+  // NB: avoid Miscellaneous-Symbols emoji (☀️ ☁️ ❄️ ⛈️) — their Unicode default is
+  // *text* presentation, and WPE/WebKit ignores the VS16 selector, so they render as a
+  // monochrome (white-on-dark) glyph. The supplementary-block (U+1F3xx) emoji default to
+  // emoji presentation and render in colour, so use those throughout.
+  0: "🌞", 1: "🌤️", 2: "⛅", 3: "🌥️", 45: "🌫️", 48: "🌫️",
   51: "🌦️", 53: "🌦️", 55: "🌧️", 61: "🌦️", 63: "🌧️", 65: "🌧️",
-  71: "🌨️", 73: "🌨️", 75: "❄️", 80: "🌦️", 81: "🌧️", 82: "🌧️",
-  95: "⛈️", 96: "⛈️", 99: "⛈️",
+  71: "🌨️", 73: "🌨️", 75: "🌨️", 80: "🌦️", 81: "🌧️", 82: "🌧️",
+  95: "🌩️", 96: "🌩️", 99: "🌩️",
 };
 const MOON_EMOJI = ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"];
 const APPS = [
