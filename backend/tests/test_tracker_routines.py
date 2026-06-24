@@ -41,3 +41,34 @@ def test_parse_empty_results():
 def test_parse_no_matching_accommodation():
     js = _resp({"accommodationId": 1, "pricePp": 500})
     assert tr.parse_holiday_price(js, accommodation_id=999) is None
+
+
+# --- DVLA licence parsing -----------------------------------------------------------
+def _dvla_page(status, valid_from="18 September 2025", valid_to="17 September 2028"):
+    return f"""
+      <dl class="govuk-summary-list">
+        <dt class="govuk-summary-list__key">Driver&#39;s full name</dt>
+          <dd class="govuk-summary-list__value">A Person</dd>
+        <dt class="govuk-summary-list__key">Licence status</dt>
+          <dd class="govuk-summary-list__value">{status}</dd>
+        <dt class="govuk-summary-list__key">Licence valid from</dt>
+          <dd class="govuk-summary-list__value">{valid_from}</dd>
+        <dt class="govuk-summary-list__key">Licence valid to</dt>
+          <dd class="govuk-summary-list__value">{valid_to}</dd>
+      </dl>"""
+
+
+def test_dvla_full_licence_is_valid():
+    out = tr.parse_dvla(_dvla_page("You have a full driving licence"))
+    assert out["value"] == 1.0
+    assert out["status"] == "You have a full driving licence · valid to 17 September 2028"
+    assert out["detail"] == "Valid 18 September 2025 – 17 September 2028"
+
+
+def test_dvla_revoked_is_invalid():
+    out = tr.parse_dvla(_dvla_page("Your licence has been revoked"))
+    assert out["value"] == 0.0
+
+
+def test_dvla_no_record():
+    assert tr.parse_dvla("<p>check your identity</p>") is None

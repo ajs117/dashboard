@@ -58,10 +58,10 @@ html, body {
 .news-card { grid-column: 1; grid-row: 2; height: 92px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px;
   display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
-.news-tag { font-size: 12px; font-weight: 700; margin-bottom: 4px; flex: 0 0 auto; }
+.news-tag { font-size: 13px; font-weight: 700; margin-bottom: 4px; flex: 0 0 auto; }
 .news-tag.news { color: var(--accent); }
 .news-tag.fact { color: var(--warn); }
-.news-text { font-size: 16px; line-height: 1.25; overflow: hidden;
+.news-text { font-size: 18px; line-height: 1.25; overflow: hidden;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 /* App carousel (paged: swipe/scroll, arrows page, tap opens) — full-width bottom row */
@@ -243,6 +243,13 @@ html, body {
 .trk-change.up { color: var(--bad); }     /* a holiday getting pricier is bad -> red */
 .trk-change.down { color: var(--good); }
 .trk-spark { width: 100%; height: 44px; margin: 12px 0; display: block; }
+/* Status trackers (DVLA licence): show the state as text, not a number */
+.trk-statuswrap { margin: 12px 0 2px; }
+.trk-status { font-size: 22px; font-weight: 800; line-height: 1.2; }
+.trk-status.ok { color: var(--good); }
+.trk-status.bad { color: var(--bad); }
+.trk-detail { font-size: 14px; margin-top: 4px; }
+.trk-banner.change { background: rgba(78,163,255,.14); border-color: var(--accent); }
 .trk-banner { background: rgba(210,153,34,.15); border: 1px solid var(--warn); border-radius: 10px;
   padding: 8px 12px; font-size: 14px; display: flex; justify-content: space-between;
   align-items: center; gap: 10px; }

@@ -79,6 +79,15 @@ holiday_tracker:
   accommodation_id: 0       # hotel id to match exactly (0 = take first/cheapest result)
   price_field: "pricePp"    # pricePp = per-person (matches TUI headline) | price = party total
 
+# DVLA driving-licence status (GOV.UK "View your driving licence"). A status tracker:
+# alerts when the licence status text or validity dates change (e.g. a medical renewal
+# completing). Details are sensitive identity info — keep this file gitignored, Pi-only.
+dvla_licence:
+  enabled: false
+  licence_number: ""        # 16-char DVLA driving licence number
+  national_insurance: ""    # National Insurance number
+  postcode: ""              # postcode on the licence
+
 # --- Cache TTLs (seconds) ---
 cache:
   weather: 600

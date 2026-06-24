@@ -74,10 +74,31 @@ export const tracker = {
     }
     list.innerHTML = trackers.map((t) => {
       const al = t.alert && t.alert.active ? t.alert : null;
-      const up = (t.change ?? 0) > 0, down = (t.change ?? 0) < 0;
-      const chCls = up ? "up" : down ? "down" : "";
-      const chTxt = t.change == null || t.change === 0 ? "no change since baseline"
-        : `${up ? "▲" : "▼"} ${money(Math.abs(t.change), t.unit)} vs baseline`;
+      const isStatus = t.status != null;              // DVLA-style status tracker
+      let valueCell, body, banner, footBtn;
+      if (isStatus) {
+        valueCell = `<div class="trk-statuswrap">
+            <div class="trk-status ${t.value === 0 ? "bad" : "ok"}">${esc(t.status)}</div>
+            ${t.detail ? `<div class="trk-detail muted">${esc(t.detail)}</div>` : ""}</div>`;
+        body = "";
+        banner = al ? `<div class="trk-banner change">
+            Status changed → ${esc(al.to)}
+            <button class="trk-btn ack" data-id="${esc(t.id)}">Dismiss</button></div>` : "";
+        footBtn = `<button class="trk-btn check" data-id="${esc(t.id)}">Check now</button>`;
+      } else {
+        const up = (t.change ?? 0) > 0, down = (t.change ?? 0) < 0;
+        const chCls = up ? "up" : down ? "down" : "";
+        const chTxt = t.change == null || t.change === 0 ? "no change since baseline"
+          : `${up ? "▲" : "▼"} ${money(Math.abs(t.change), t.unit)} vs baseline`;
+        valueCell = `<div class="trk-value">${money(t.value, t.unit)}
+            <div class="trk-change ${chCls}">${chTxt}</div></div>`;
+        body = sparkline(t.history);
+        banner = al ? `<div class="trk-banner ${al.direction}">
+            Price went ${al.direction === "up" ? "UP" : "DOWN"}
+            ${money(Math.abs(al.delta), t.unit)} (now ${money(al.to, t.unit)})
+            <button class="trk-btn ack" data-id="${esc(t.id)}">Dismiss</button></div>` : "";
+        footBtn = `<button class="trk-btn update" data-id="${esc(t.id)}" data-unit="${esc(t.unit)}">Update price</button>`;
+      }
       return `
         <div class="trk-card ${al ? "trk-alerting" : ""}" data-id="${esc(t.id)}">
           <div class="trk-top">
@@ -85,18 +106,13 @@ export const tracker = {
               <div class="trk-label">${esc(t.label)}</div>
               <div class="trk-note">${esc(t.note || "")}</div>
             </div>
-            <div class="trk-value">${money(t.value, t.unit)}
-              <div class="trk-change ${chCls}">${chTxt}</div></div>
+            ${isStatus ? "" : valueCell}
           </div>
-          ${sparkline(t.history)}
-          ${al ? `<div class="trk-banner ${al.direction}">
-              Price went ${al.direction === "up" ? "UP" : "DOWN"}
-              ${money(Math.abs(al.delta), t.unit)} (now ${money(al.to, t.unit)})
-              <button class="trk-btn ack" data-id="${esc(t.id)}">Dismiss</button>
-            </div>` : ""}
+          ${isStatus ? valueCell : body}
+          ${banner}
           <div class="trk-foot">
-            <span class="muted">updated ${ago(t.updated_at)} · baseline ${money(t.baseline, t.unit)}</span>
-            <button class="trk-btn update" data-id="${esc(t.id)}" data-unit="${esc(t.unit)}">Update price</button>
+            <span class="muted">updated ${ago(t.updated_at)}${isStatus ? "" : ` · baseline ${money(t.baseline, t.unit)}`}</span>
+            ${footBtn}
           </div>
         </div>`;
     }).join("");
@@ -105,6 +121,12 @@ export const tracker = {
       ctx.tap(b, () => this._openKeypad(el, ctx, b.dataset.id, b.dataset.unit)));
     list.querySelectorAll(".trk-btn.ack").forEach((b) =>
       ctx.tap(b, async () => { await post(`/api/trackers/${b.dataset.id}/ack`); this._refresh(el, ctx); }));
+    list.querySelectorAll(".trk-btn.check").forEach((b) =>
+      ctx.tap(b, async () => {
+        b.textContent = "Checking…";
+        try { await post(`/api/trackers/${b.dataset.id}/refresh`); } catch (e) { /* ignore */ }
+        this._refresh(el, ctx);
+      }));
   },
 
   _openKeypad(el, ctx, id, unit) {

@@ -24,10 +24,15 @@ from . import config
 # --- tracker definitions (coded routines) -------------------------------------------
 # A definition: id -> {label, unit, kind, url?, fetch?}. `fetch` (auto only) is an async
 # callable returning a float or None.
+# Imported lazily so trackers.py has no hard dependency on the HTTP stack at import.
 async def _holiday_fetch() -> float | None:
-    # Imported lazily so trackers.py has no hard dependency on the HTTP stack at import.
     from . import tracker_routines
     return await tracker_routines.holiday_price()
+
+
+async def _dvla_fetch() -> dict[str, Any] | None:
+    from . import tracker_routines
+    return await tracker_routines.dvla_licence()
 
 
 _DEFS: dict[str, dict[str, Any]] = {
@@ -38,6 +43,13 @@ _DEFS: dict[str, dict[str, Any]] = {
         "fetch": _holiday_fetch,
         # Verified from the TUI page + URL params (not guessed).
         "note": "Riu Palace Boavista · Boa Vista · 7nts 3 Jan 2027 · 2 adults AI · from BHX",
+    },
+    "dvla": {
+        "label": "Driving Licence",
+        "unit": "",
+        "kind": "auto",          # status tracker: alerts when the licence status changes
+        "fetch": _dvla_fetch,
+        "note": "DVLA licence status — watching the medical renewal",
     },
 }
 
@@ -88,26 +100,40 @@ def _entry(tid: str) -> dict[str, Any]:
     })
 
 
-def _apply(tid: str, value: float, source: str) -> dict[str, Any]:
-    """Record a new value, updating history + alert. Caller holds the lock."""
+def _apply(tid: str, value: float | None, source: str,
+           status: str | None = None, detail: str | None = None) -> dict[str, Any]:
+    """Record a new reading, updating history + alert. Caller holds the lock.
+
+    Most trackers are numeric (price): a changed value fires an up/down alert. Some are
+    status trackers (DVLA licence): they pass a `status` string and a change in that text
+    fires a 'change' alert even when the number is steady.
+    """
     st = _entry(tid)
-    prev = st.get("value")
     now = time.time()
-    if st.get("baseline") is None:
-        st["baseline"] = value
-    if prev is not None and value != prev:
-        st["alert"] = {
-            "active": True,
-            "direction": "up" if value > prev else "down",
-            "delta": round(value - prev, 2),
-            "from": prev, "to": value, "at": now,
-        }
-    st["value"] = value
+    alert = None
+    if value is not None:
+        prev = st.get("value")
+        if st.get("baseline") is None:
+            st["baseline"] = value
+        if prev is not None and value != prev:
+            alert = {"active": True, "direction": "up" if value > prev else "down",
+                     "delta": round(value - prev, 2), "from": prev, "to": value, "at": now}
+        st["value"] = value
+        hist = st.setdefault("history", [])
+        hist.append([now, value])
+        del hist[:-_HISTORY_CAP]
+    if status is not None:
+        prev_status = st.get("status")
+        if prev_status is not None and status != prev_status:
+            alert = {"active": True, "direction": "change",
+                     "from": prev_status, "to": status, "at": now}
+        st["status"] = status
+    if detail is not None:
+        st["detail"] = detail
+    if alert is not None:
+        st["alert"] = alert
     st["updated_at"] = now
     st["source"] = source
-    hist = st.setdefault("history", [])
-    hist.append([now, value])
-    del hist[:-_HISTORY_CAP]
     _save()
     return st
 
@@ -126,6 +152,8 @@ def _public_one(tid: str, d: dict[str, Any]) -> dict[str, Any]:
         "value": value,
         "baseline": baseline,
         "change": change,
+        "status": st.get("status"),        # status trackers (DVLA): human-readable state
+        "detail": st.get("detail"),        # extra line (e.g. valid-from/to dates)
         "updated_at": st.get("updated_at"),
         "history": st.get("history", []),
         "alert": st.get("alert"),
@@ -171,11 +199,15 @@ async def refresh(tid: str) -> dict[str, Any]:
         async with _lock:
             _load()
             return _public_one(tid, d)
-    value = await d["fetch"]()          # outside the lock (network)
+    res = await d["fetch"]()            # outside the lock (network)
     async with _lock:
         _load()
-        if value is not None:
-            _apply(tid, float(value), "auto")
+        if isinstance(res, dict):       # status tracker -> {value, status, detail}
+            v = res.get("value")
+            _apply(tid, float(v) if v is not None else None, "auto",
+                   status=res.get("status"), detail=res.get("detail"))
+        elif res is not None:           # numeric tracker -> a bare float
+            _apply(tid, float(res), "auto")
         return _public_one(tid, d)
 
 
