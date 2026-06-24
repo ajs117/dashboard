@@ -378,7 +378,7 @@ function renderWeather(el, w) {
     <div class="wx-astro">
       <div class="item">🌅 ${fmtClock(w.sun?.sunrise)}</div>
       <div class="item">🌇 ${fmtClock(w.sun?.sunset)}</div>
-      <div class="item">${moonIco} ${esc(moon.name || "")} ${Math.round((moon.illumination || 0) * 100)}%</div>
+      <div class="item wx-moon">${moonIco} ${esc(moon.name || "")} ${Math.round((moon.illumination || 0) * 100)}%</div>
     </div>
     <div class="wx-forecast">
       ${days.map((d) => `

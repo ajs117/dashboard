@@ -41,6 +41,8 @@ export const aircraft = {
       .addTo(map).bindTooltip("You");
     this._map = map;
     setTimeout(() => map.invalidateSize(), 50);
+    // The list mirrors what's actually on screen, so refresh it when the view pans/zooms.
+    map.on("moveend zoomend", () => this._renderList(el, ctx));
 
     const load = async () => {
       try {
@@ -116,19 +118,7 @@ export const aircraft = {
       if (!seen.has(hex)) { this._map.removeLayer(this._markers[hex]); delete this._markers[hex]; }
     }
 
-    list.innerHTML = data.aircraft.map((ac) => `
-      <div class="ac-row ${ac.hex === this._selected ? "sel" : ""}" data-hex="${esc(ac.hex)}">
-        <div><div class="cs">${esc(ac.callsign || ac.hex)}</div>
-          <div class="meta">${esc(ac.type || "?")} · ${esc(ac.compass || "")} ${ac.elevation || 0}°↑</div></div>
-        <div style="text-align:right">
-          <div>${ac.distance_mi ?? "—"} mi</div>
-          <div class="meta">${ac.altitude != null ? ac.altitude + " ft" : ""}</div></div>
-      </div>`).join("") ||
-      `<div class="muted" style="padding:16px">No aircraft in range</div>`;
-
-    // Rows live in a scrollable list -> movement-thresholded tap so a drag still scrolls.
-    list.querySelectorAll(".ac-row").forEach((row) =>
-      ctx.tapRow(row, () => { this._follow = false; this._select(el, ctx, row.dataset.hex); }));
+    this._renderList(el, ctx);
 
     // Decide which plane to show: keep a still-present pinned plane, else auto-follow.
     let target;
@@ -147,6 +137,30 @@ export const aircraft = {
     } else {
       this._renderLive(el);                      // same plane -> just refresh live numbers
     }
+  },
+
+  // Build the side list from only the aircraft currently within the map viewport, so the
+  // list matches what you can see. Re-run on every pan/zoom and data refresh.
+  _renderList(el, ctx) {
+    const list = el.querySelector("#ac-list");
+    if (!list || !this._map) return;
+    const bounds = this._map.getBounds();
+    const visible = (this._data?.aircraft || []).filter(
+      (ac) => ac.lat != null && ac.lon != null && bounds.contains([ac.lat, ac.lon]));
+
+    list.innerHTML = visible.map((ac) => `
+      <div class="ac-row ${ac.hex === this._selected ? "sel" : ""}" data-hex="${esc(ac.hex)}">
+        <div><div class="cs">${esc(ac.callsign || ac.hex)}</div>
+          <div class="meta">${esc(ac.type || "?")} · ${esc(ac.compass || "")} ${ac.elevation || 0}°↑</div></div>
+        <div style="text-align:right">
+          <div>${ac.distance_mi ?? "—"} mi</div>
+          <div class="meta">${ac.altitude != null ? ac.altitude + " ft" : ""}</div></div>
+      </div>`).join("") ||
+      `<div class="muted" style="padding:16px">No aircraft in this area</div>`;
+
+    // Rows live in a scrollable list -> movement-thresholded tap so a drag still scrolls.
+    list.querySelectorAll(".ac-row").forEach((row) =>
+      ctx.tapRow(row, () => { this._follow = false; this._select(el, ctx, row.dataset.hex); }));
   },
 
   _select(el, ctx, hex) {

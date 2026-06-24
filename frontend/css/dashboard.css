@@ -103,8 +103,10 @@ html, body {
                   display: flex; flex-direction: column; }
 .wx-stats .k { color: var(--muted); font-size: 12px; }
 .wx-stats .v { font-size: 16px; font-weight: 600; }
-.wx-astro { display: flex; gap: 8px; margin: 6px 0 10px; flex-wrap: wrap; font-size: 14px; }
-.wx-astro .item { background: var(--panel-2); border-radius: 10px; padding: 7px 11px; }
+.wx-astro { display: flex; gap: 8px; margin: 6px 0 10px; font-size: 14px; }
+.wx-astro .item { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 7px 11px;
+                  text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx-astro .wx-moon { flex: 1.9; }   /* moon phase name is the longest label -> wider column */
 .wx-forecast { display: flex; gap: 7px; }
 .wx-day { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 8px 4px;
           text-align: center; font-size: 12px; }
