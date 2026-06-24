@@ -98,6 +98,7 @@ cache:
   news: 900             # BBC UK+World headlines
   facts: 3600           # random trivia (Useless Facts API)
   indoor: 60            # Govee thermo-hygrometer poll
+  air: 1800             # air quality / UV / pollen (Open-Meteo)
 
 # --- Frontend refresh intervals (seconds) ---
 refresh:

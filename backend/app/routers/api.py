@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException
 from .. import config
 from ..cache import cache
 from ..providers import (
-    aircraft, facts, govee, news, photos, radar, radar_forecast, route, stocks,
-    trains, weather,
+    aircraft, air_quality, facts, govee, news, photos, radar, radar_forecast, route,
+    stocks, trains, weather,
 )
 
 router = APIRouter(prefix="/api", tags=["data"])
@@ -24,6 +24,13 @@ async def get_weather() -> dict[str, Any]:
     cfg = config.get()
     ttl = _ttls().get("weather", 600)
     return await cache.get_or_fetch("weather", ttl, lambda: weather.fetch(cfg))
+
+
+@router.get("/air")
+async def get_air() -> dict[str, Any]:
+    cfg = config.get()
+    ttl = _ttls().get("air", 1800)
+    return await cache.get_or_fetch("air", ttl, lambda: air_quality.fetch(cfg))
 
 
 @router.get("/radar")

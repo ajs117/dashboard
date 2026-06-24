@@ -78,6 +78,7 @@ export const home = {
   _tkRAF: null, _tkOff: 0, _carKey: null,
   _feed: [], _feedIdx: 0, _feedTimer: null, _newsTimer: null, _factsTimer: null,
   _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
+  _air: null, _airTimer: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -88,6 +89,7 @@ export const home = {
     this._feed = [];
     this._feedIdx = 0;
     this._sensor = null;   // don't carry a previous mount's reading into a fresh card
+    this._air = null;
 
     el.innerHTML = `
       <div class="module home">
@@ -223,6 +225,35 @@ export const home = {
       } catch (e) { /* keep the model values */ }
     };
 
+    // Air quality (AQI), UV index and dominant pollen — filled into the #wx-air row that
+    // renderWeather lays out, and re-applied after each weather re-render.
+    const lvlClass = (band) => ({
+      "Good": "lvl-good", "Low": "lvl-good", "Fair": "lvl-ok", "Moderate": "lvl-mod",
+      "Poor": "lvl-high", "High": "lvl-high", "Very poor": "lvl-bad",
+      "Very high": "lvl-bad", "Extreme": "lvl-bad", "Extremely poor": "lvl-bad",
+    }[band] || "");
+    const applyAir = () => {
+      const a = this._air;
+      const box = el.querySelector("#wx-air");
+      if (!box || !a) return;
+      const pill = (ico, label, val, band, cls = "") =>
+        `<div class="item ${cls}"><span class="ak">${ico}${label ? " " + label : ""}</span>` +
+        `<span class="av">${val == null || val === "" ? "—" : esc(String(val))}</span>` +
+        `<span class="ab ${lvlClass(band)}">${esc(band || "")}</span></div>`;
+      box.innerHTML =
+        pill("💨", "Air", a.aqi?.value, a.aqi?.band) +
+        pill("🔆", "UV", a.uv?.value, a.uv?.band) +
+        pill("🌿", "", a.pollen?.type, a.pollen?.band, "wx-pollen");  // 🌿 alone = pollen
+    };
+    const loadAir = async () => {
+      try {
+        const env = await ctx.api("/api/air");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        this._air = env.data;
+        applyAir();
+      } catch (e) { /* leave the row empty */ }
+    };
+
     const loadWeather = async () => {
       try {
         const env = await ctx.api("/api/weather");
@@ -232,6 +263,7 @@ export const home = {
         ctx.setStale(env.stale, "weather");
         renderWeather(wx, env.data);
         applySensor();                        // re-apply the live reading after a re-render
+        applyAir();                           // re-fill the air row after a re-render
       } catch (e) {
         const wx = el.querySelector("#wx");
         if (wx) wx.innerHTML = `<div class="err">Weather unavailable</div>`;
@@ -240,6 +272,8 @@ export const home = {
     await loadWeather();
     if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._wxTimer = setInterval(loadWeather, (cfg.refresh?.weather || 600) * 1000);
+    loadAir();
+    this._airTimer = setInterval(loadAir, (cfg.cache?.air || 1800) * 1000);
     await loadSensor();
     if (ctx.isCurrent && !ctx.isCurrent()) return;
     this._indoorTimer = setInterval(loadSensor, (cfg.refresh?.indoor || 60) * 1000);
@@ -344,6 +378,7 @@ export const home = {
     clearInterval(this._factsTimer);
     clearInterval(this._trkTimer);
     clearInterval(this._indoorTimer);
+    clearInterval(this._airTimer);
     cancelAnimationFrame(this._tkRAF);
   },
 };
@@ -362,7 +397,7 @@ function renderWeather(el, w) {
 
   el.innerHTML = `
     <div class="wx-now">
-      <div style="font-size:60px">${emoji}</div>
+      <div style="font-size:50px">${emoji}</div>
       <div>
         <div class="wx-temprow"><div class="wx-temp" id="wx-temp">${t(c.temperature)}</div>
           <span class="wx-live" id="wx-live"></span></div>
@@ -373,13 +408,14 @@ function renderWeather(el, w) {
     <div class="wx-stats">
       <div class="item"><span class="k">Dew point</span><span class="v" id="wx-dew">${t(c.dew_point)}</span></div>
       <div class="item"><span class="k">Humidity</span><span class="v" id="wx-humidity">${c.humidity != null ? Math.round(c.humidity) + "%" : "—"}</span></div>
-      <div class="item" style="flex:1.7"><span class="k">Wind</span><span class="v">${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} ${windUnit} ${esc(c.wind_compass || "")}${gust}</span></div>
+      <div class="item" style="flex:1.4"><span class="k">Wind${gust}</span><span class="v">${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} ${windUnit} ${esc(c.wind_compass || "")}</span></div>
     </div>
     <div class="wx-astro">
       <div class="item">🌅 ${fmtClock(w.sun?.sunrise)}</div>
       <div class="item">🌇 ${fmtClock(w.sun?.sunset)}</div>
       <div class="item" title="${esc(moon.name || "")}">${moonIco} ${Math.round((moon.illumination || 0) * 100)}%</div>
     </div>
+    <div class="wx-air" id="wx-air"></div>
     <div class="wx-forecast">
       ${days.map((d) => `
         <div class="wx-day">
