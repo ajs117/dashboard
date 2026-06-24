@@ -420,10 +420,12 @@ function renderWeather(el, w) {
       ${days.map((d) => `
         <div class="wx-day">
           <div class="d">${esc(dayName(d.date))}</div>
-          <div style="font-size:22px">${forecastIcon(d.code, d.precip_prob)}</div>
-          <div class="hi">${d.tmax != null ? Math.round(d.tmax) + "°" : "—"}</div>
-          <div class="muted">${d.tmin != null ? Math.round(d.tmin) + "°" : "—"}</div>
-          ${d.precip_prob != null ? `<div class="muted">💧${d.precip_prob}%</div>` : ""}
+          <div class="ico">${forecastIcon(d.code, d.precip_prob)}</div>
+          <div class="temps">
+            <span class="hi">${d.tmax != null ? Math.round(d.tmax) + "°" : "—"}</span>
+            <span class="lo">${d.tmin != null ? Math.round(d.tmin) + "°" : "—"}</span>
+          </div>
+          ${d.precip_prob != null ? `<div class="pp">💧${d.precip_prob}%</div>` : ""}
         </div>`).join("")}
     </div>`;
 }

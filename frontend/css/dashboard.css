@@ -120,11 +120,16 @@ html, body {
 .wx-air .lvl-mod  { color: var(--warn); }
 .wx-air .lvl-high { color: #e8923a; }
 .wx-air .lvl-bad  { color: var(--bad); }
-.wx-forecast { display: flex; gap: 7px; }
-.wx-day { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 8px 4px;
-          text-align: center; font-size: 12px; }
-.wx-day .d { color: var(--muted); }
-.wx-day .hi { font-weight: 700; }
+.wx-forecast { display: flex; gap: 7px; margin-top: 8px; }
+.wx-day { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 11px 4px;
+          text-align: center; font-size: 13px; display: flex; flex-direction: column;
+          gap: 6px; justify-content: center; }
+.wx-day .d { color: var(--muted); font-weight: 600; }
+.wx-day .ico { font-size: 26px; line-height: 1; }
+.wx-day .temps { display: flex; justify-content: center; align-items: baseline; gap: 8px; }
+.wx-day .hi { font-weight: 700; font-size: 16px; }
+.wx-day .lo { color: var(--muted); font-size: 15px; }
+.wx-day .pp { color: var(--muted); }
 
 /* World-clock carousel (full width) */
 .carousel-card { grid-column: 1; grid-row: 3; background: var(--panel);
