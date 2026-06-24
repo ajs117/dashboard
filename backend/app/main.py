@@ -1,6 +1,8 @@
 """FastAPI entrypoint: serves the API and the static frontend."""
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from . import config
+from . import config, trackers
 from .providers import aclose
 from .routers import api, config_api, trackers_api
 
@@ -34,10 +36,27 @@ class NoCacheStaticFiles(StaticFiles):
         return resp
 
 
+async def _tracker_scheduler() -> None:
+    """Poll the auto trackers (e.g. the holiday price) on a slow interval so alerts
+    fire even when nobody has the tracker page open. Holiday prices move slowly, so
+    the default is every few hours; tunable via config `trackers.interval_seconds`."""
+    interval = float((config.get().get("trackers") or {}).get("interval_seconds", 10800))
+    while True:
+        try:
+            await trackers.check_all_auto()
+        except Exception:  # noqa: BLE001 - a bad poll must never kill the loop
+            pass
+        await asyncio.sleep(max(300.0, interval))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.load()
+    task = asyncio.create_task(_tracker_scheduler())
     yield
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
     await aclose()
 
 

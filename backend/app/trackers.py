@@ -24,11 +24,18 @@ from . import config
 # --- tracker definitions (coded routines) -------------------------------------------
 # A definition: id -> {label, unit, kind, url?, fetch?}. `fetch` (auto only) is an async
 # callable returning a float or None.
+async def _holiday_fetch() -> float | None:
+    # Imported lazily so trackers.py has no hard dependency on the HTTP stack at import.
+    from . import tracker_routines
+    return await tracker_routines.holiday_price()
+
+
 _DEFS: dict[str, dict[str, Any]] = {
     "holiday": {
         "label": "TUI Holiday",
         "unit": "£",
-        "kind": "manual",
+        "kind": "auto",          # auto-polled from Holiday Hypermarket (TUI's own prices)
+        "fetch": _holiday_fetch,
         # Verified from the TUI page + URL params (not guessed).
         "note": "Riu Palace Boavista · Boa Vista · 7nts 3 Jan 2027 · 2 adults AI · from BHX",
     },

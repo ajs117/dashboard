@@ -64,6 +64,21 @@ govee:
                              # When enabled, the live reading overrides the headline
                              # temperature + humidity (Open-Meteo is only an estimate).
 
+# --- Custom trackers (the "watch this thing" app) ---
+trackers:
+  interval_seconds: 10800   # how often auto trackers re-poll (default 3h)
+
+# TUI holiday price, read from Holiday Hypermarket (TUI-owned, same prices, no bot-wall).
+# Capture the search_id once: open the Holiday Hypermarket hotel page, run your exact
+# search, devtools -> Network -> the "Results/GetResults" request -> read "searchId"
+# (and "accountId") from its JSON request body.
+holiday_tracker:
+  enabled: false
+  search_id: 0              # numeric searchId from the GetResults request body
+  account_id: ""            # accountId from the same request body
+  accommodation_id: 0       # hotel id to match exactly (0 = take first/cheapest result)
+  price_field: "pricePp"    # pricePp = per-person (matches TUI headline) | price = party total
+
 # --- Cache TTLs (seconds) ---
 cache:
   weather: 600
