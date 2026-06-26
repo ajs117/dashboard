@@ -88,6 +88,21 @@ dvla_licence:
   national_insurance: ""    # National Insurance number
   postcode: ""              # postcode on the licence
 
+# --- EcoFlow solar output (official developer API; ~3-7 day approval for keys) ---
+# Apply at developer-eu.ecoflow.com, generate an Access Key + Secret Key.
+ecoflow:
+  enabled: false
+  access_key: ""
+  secret_key: ""
+  serial: ""            # device serial number (SN) to read
+  pv_field: ""          # optional: override which quota field holds solar input watts
+
+# --- Hive heating -> indoor temperature (no official API; 2FA -> token capture) ---
+# Captured once from the Hive web app (see Phase 3). Sensitive: keep Pi-only, gitignored.
+hive:
+  enabled: false
+  refresh_token: ""
+
 # --- Cache TTLs (seconds) ---
 cache:
   weather: 600
@@ -99,6 +114,8 @@ cache:
   facts: 3600           # random trivia (Useless Facts API)
   indoor: 60            # Govee thermo-hygrometer poll
   air: 1800             # air quality / UV / pollen (Open-Meteo)
+  solar: 60             # EcoFlow solar output
+  indoor_hive: 60       # Hive indoor temperature
 
 # --- Frontend refresh intervals (seconds) ---
 refresh:

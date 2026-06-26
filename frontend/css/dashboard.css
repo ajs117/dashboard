@@ -98,28 +98,25 @@ html, body {
 .wx-temprow { display: flex; align-items: baseline; gap: 8px; }
 .wx-live { color: var(--good); font-size: 13px; font-weight: 700; }   /* live Govee reading */
 .wx-live:empty { display: none; }
-.wx-stats { display: flex; gap: 10px; margin: 8px 0 4px; }
-.wx-stats .item { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 6px 12px;
-                  display: flex; flex-direction: column; }
-.wx-stats .k { color: var(--muted); font-size: 12px; }
-.wx-stats .v { font-size: 16px; font-weight: 600; }
-.wx-astro { display: flex; gap: 8px; margin: 4px 0 6px; font-size: 14px; }
-.wx-astro .item { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 7px 11px;
-                  text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Air quality (AQI) · UV · pollen row */
-.wx-air { display: flex; gap: 8px; margin: 4px 0 2px; }
-.wx-air .item { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 6px 10px;
-                display: flex; align-items: baseline; gap: 6px; white-space: nowrap;
-                overflow: hidden; }
-.wx-air .ak { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
-.wx-air .av { font-size: 16px; font-weight: 700; }
-.wx-air .ab { font-size: 12px; font-weight: 600; margin-left: auto; }
-.wx-air .wx-pollen { flex: 1.6; }   /* pollen carries a type + band -> needs more room */
-.wx-air .lvl-good { color: var(--good); }
-.wx-air .lvl-ok   { color: #8fcf6b; }
-.wx-air .lvl-mod  { color: var(--warn); }
-.wx-air .lvl-high { color: #e8923a; }
-.wx-air .lvl-bad  { color: var(--bad); }
+/* Cycling weather detail row: 3 pages (stats / sun-moon / air) rotate in one row. */
+.wx-cycle { display: flex; gap: 8px; margin: 10px 0 4px; min-height: 46px; }
+.wx-cycle .item { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 7px 11px;
+                  display: flex; align-items: baseline; gap: 6px; white-space: nowrap;
+                  overflow: hidden; }
+.wx-cycle .ck { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
+.wx-cycle .cv { font-size: 17px; font-weight: 700; }
+.wx-cycle .cb { font-size: 12px; font-weight: 600; margin-left: auto; }
+.wx-cycle .wx-pollen { flex: 1.6; }   /* pollen carries a type + band -> needs more room */
+.wx-cycle .wx-wind { flex: 1.6; }     /* wind = speed + unit + compass -> widest stat */
+.wx-cycle .wx-wind .cv { font-size: 15px; }
+.lvl-good { color: var(--good); }
+.lvl-ok   { color: #8fcf6b; }
+.lvl-mod  { color: var(--warn); }
+.lvl-high { color: #e8923a; }
+.lvl-bad  { color: var(--bad); }
+.wx-dots { display: flex; justify-content: center; gap: 6px; margin: 2px 0 4px; }
+.wx-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.wx-dots i.on { background: var(--accent); }
 .wx-forecast { display: flex; gap: 7px; margin-top: 8px; }
 .wx-day { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 11px 4px;
           text-align: center; font-size: 13px; display: flex; flex-direction: column;
@@ -132,16 +129,16 @@ html, body {
 .wx-day .pp { color: var(--muted); }
 
 /* World-clock carousel (full width) */
-.carousel-card { grid-column: 1; grid-row: 3; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px;
-  display: flex; align-items: center; overflow: hidden; }
-.carousel { display: flex; gap: 12px; width: 100%; }
-.wc { flex: 1; background: var(--panel-2); border-radius: 12px; padding: 10px 14px;
-      text-align: center; }
-.wc .city { font-size: 15px; color: var(--fg); }
-.wc .city .tz { color: var(--muted); font-size: 11px; }
-.wc .t { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.wc .d { font-size: 12px; color: var(--muted); }
+/* Left-column row 3: world clock (cycling) + Indoor (Hive) + Solar (EcoFlow) tiles. */
+.home-strip { grid-column: 1; grid-row: 3; display: flex; gap: 12px; }
+.hs-tile { flex: 1; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 12px 14px; text-align: center; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.hs-k { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden;
+        text-overflow: ellipsis; }
+.hs-k .tz { font-size: 11px; }
+.hs-v { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.hs-s { font-size: 12px; color: var(--muted); }
 
 /* Stocks ticker (full-width scrolling bar) */
 .ticker-bar { grid-column: 1 / span 2; grid-row: 5; background: var(--panel);

@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException
 from .. import config
 from ..cache import cache
 from ..providers import (
-    aircraft, air_quality, facts, govee, news, photos, radar, radar_forecast, route,
-    stocks, trains, weather,
+    aircraft, air_quality, ecoflow, facts, govee, hive, news, photos, radar,
+    radar_forecast, route, stocks, trains, weather,
 )
 
 router = APIRouter(prefix="/api", tags=["data"])
@@ -111,6 +111,20 @@ async def get_indoor() -> dict[str, Any]:
     cfg = config.get()
     ttl = _ttls().get("indoor", 60)
     return await cache.get_or_fetch("indoor", ttl, lambda: govee.fetch(cfg))
+
+
+@router.get("/solar")
+async def get_solar() -> dict[str, Any]:
+    cfg = config.get()
+    ttl = _ttls().get("solar", 60)
+    return await cache.get_or_fetch("solar", ttl, lambda: ecoflow.fetch(cfg))
+
+
+@router.get("/indoor-hive")
+async def get_indoor_hive() -> dict[str, Any]:
+    cfg = config.get()
+    ttl = _ttls().get("indoor_hive", 60)
+    return await cache.get_or_fetch("indoor_hive", ttl, lambda: hive.fetch(cfg))
 
 
 @router.get("/govee/devices")

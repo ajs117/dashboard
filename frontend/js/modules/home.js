@@ -78,7 +78,7 @@ export const home = {
   _tkRAF: null, _tkOff: 0, _carKey: null,
   _feed: [], _feedIdx: 0, _feedTimer: null, _newsTimer: null, _factsTimer: null,
   _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
-  _air: null, _airTimer: null,
+  _air: null, _airTimer: null, _wx: null, _wxPage: 0, _wxCycTimer: null, _homeTimer: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -90,6 +90,8 @@ export const home = {
     this._feedIdx = 0;
     this._sensor = null;   // don't carry a previous mount's reading into a fresh card
     this._air = null;
+    this._wx = null;
+    this._wxPage = 0;
 
     el.innerHTML = `
       <div class="module home">
@@ -114,7 +116,11 @@ export const home = {
 
         <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
 
-        <div class="carousel-card"><div class="carousel" id="carousel"></div></div>
+        <div class="home-strip">
+          <div class="hs-tile" id="carousel"></div>
+          <div class="hs-tile" id="home-indoor"><div class="hs-k">🏠 Indoor</div><div class="hs-v">—</div></div>
+          <div class="hs-tile" id="home-solar"><div class="hs-k">☀ Solar</div><div class="hs-v">—</div></div>
+        </div>
 
         <div class="ticker-bar"><div class="ticker" id="ticker">
           <span class="muted">Loading markets…</span></div></div>
@@ -195,63 +201,47 @@ export const home = {
     if (ctx.isCurrent && !ctx.isCurrent()) return;
     this._trkTimer = setInterval(loadTrackers, 60000);
 
-    // Govee sensor = the ACTUAL measured temp/humidity at your location. When enabled it
-    // overrides the model's headline temperature + humidity (Open-Meteo is only an
-    // estimate), tagged "live". Re-applied after every weather re-render.
+    // Govee sensor = the ACTUAL measured temp at your location; overrides the headline
+    // temperature (Open-Meteo is only an estimate), tagged "live". Its humidity + dew show
+    // on the stats page of the cycling row (rebuilt by renderWxCycle from _sensor).
     const applySensor = () => {
       const s = this._sensor;
       if (!s || !s.enabled) return;
       const useF = (cfg.units?.temperature === "fahrenheit");
       const t = useF ? s.temperature_f : s.temperature_c;
       const haveT = t != null, haveH = s.humidity != null;
-      // Nothing to show (e.g. Govee error/empty) -> keep the model values, no "live" tag.
       if (!haveT && !haveH && s.online !== false) return;
       const tEl = el.querySelector("#wx-temp");
-      const hEl = el.querySelector("#wx-humidity");
-      const dEl = el.querySelector("#wx-dew");
       const mEl = el.querySelector("#wx-live");
       if (tEl && haveT) tEl.textContent = t.toFixed(1) + (useF ? "°F" : "°C");
-      if (hEl && haveH) hEl.textContent = s.humidity + "%";
-      const dp = useF ? s.dew_point_f : s.dew_point_c;   // computed from live temp+humidity
-      if (dEl && dp != null) dEl.textContent = dp.toFixed(1) + (useF ? "°F" : "°C");
       if (mEl) mEl.textContent = s.online === false ? "● sensor offline" : (haveT || haveH ? "● live" : "");
     };
+
+    // The weather detail row cycles through 3 pages (stats / sun-moon / air); this rebuilds
+    // the visible page from the stored weather + air + sensor data and lights the dot.
+    const renderWxCycle = () => {
+      const box = el.querySelector("#wx-cycle");
+      if (!box || !this._wx) return;
+      box.innerHTML = wxCycleHtml(this._wxPage, this._wx, this._air, this._sensor);
+      el.querySelectorAll("#wx-dots i").forEach((d, i) => d.classList.toggle("on", i === this._wxPage));
+    };
+
     const loadSensor = async () => {
       try {
         const env = await ctx.api("/api/indoor");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
         this._sensor = env.data;
         applySensor();
+        renderWxCycle();                      // live humidity/dew sit on the stats page
       } catch (e) { /* keep the model values */ }
-    };
-
-    // Air quality (AQI), UV index and dominant pollen — filled into the #wx-air row that
-    // renderWeather lays out, and re-applied after each weather re-render.
-    const lvlClass = (band) => ({
-      "Good": "lvl-good", "Low": "lvl-good", "Fair": "lvl-ok", "Moderate": "lvl-mod",
-      "Poor": "lvl-high", "High": "lvl-high", "Very poor": "lvl-bad",
-      "Very high": "lvl-bad", "Extreme": "lvl-bad", "Extremely poor": "lvl-bad",
-    }[band] || "");
-    const applyAir = () => {
-      const a = this._air;
-      const box = el.querySelector("#wx-air");
-      if (!box || !a) return;
-      const pill = (ico, label, val, band, cls = "") =>
-        `<div class="item ${cls}"><span class="ak">${ico}${label ? " " + label : ""}</span>` +
-        `<span class="av">${val == null || val === "" ? "—" : esc(String(val))}</span>` +
-        `<span class="ab ${lvlClass(band)}">${esc(band || "")}</span></div>`;
-      box.innerHTML =
-        pill("💨", "Air", a.aqi?.value, a.aqi?.band) +
-        pill("🔆", "UV", a.uv?.value, a.uv?.band) +
-        pill("🌿", "", a.pollen?.type, a.pollen?.band, "wx-pollen");  // 🌿 alone = pollen
     };
     const loadAir = async () => {
       try {
         const env = await ctx.api("/api/air");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
         this._air = env.data;
-        applyAir();
-      } catch (e) { /* leave the row empty */ }
+        renderWxCycle();                      // refresh the air page if it's showing
+      } catch (e) { /* leave the air page empty */ }
     };
 
     const loadWeather = async () => {
@@ -261,22 +251,40 @@ export const home = {
         const wx = el.querySelector("#wx");
         if (!wx) return;
         ctx.setStale(env.stale, "weather");
+        this._wx = env.data;
         renderWeather(wx, env.data);
-        applySensor();                        // re-apply the live reading after a re-render
-        applyAir();                           // re-fill the air row after a re-render
+        renderWxCycle();                      // fill the cycle row from stored data
+        applySensor();                        // re-apply the live headline temp
       } catch (e) {
         const wx = el.querySelector("#wx");
         if (wx) wx.innerHTML = `<div class="err">Weather unavailable</div>`;
       }
     };
+
+    // Home strip: Indoor (Hive) + Solar (EcoFlow). Both show "—" until configured.
+    const loadHome = async () => {
+      const [solar, indoor] = await Promise.all([
+        ctx.api("/api/solar").catch(() => null),
+        ctx.api("/api/indoor-hive").catch(() => null),
+      ]);
+      if (ctx.isCurrent && !ctx.isCurrent()) return;
+      renderHomeStrip(el, cfg, solar && solar.data, indoor && indoor.data);
+    };
+
     await loadWeather();
     if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._wxTimer = setInterval(loadWeather, (cfg.refresh?.weather || 600) * 1000);
+    this._wxCycTimer = setInterval(() => {
+      this._wxPage = (this._wxPage + 1) % 3;
+      renderWxCycle();
+    }, 6000);
     loadAir();
     this._airTimer = setInterval(loadAir, (cfg.cache?.air || 1800) * 1000);
     await loadSensor();
     if (ctx.isCurrent && !ctx.isCurrent()) return;
     this._indoorTimer = setInterval(loadSensor, (cfg.refresh?.indoor || 60) * 1000);
+    loadHome();
+    this._homeTimer = setInterval(loadHome, (cfg.cache?.solar || 60) * 1000);
 
     const loadStocks = async () => {
       try {
@@ -343,29 +351,22 @@ export const home = {
     this._tkRAF = requestAnimationFrame(step);
   },
 
+  // World clock collapsed to a single cycling tile: shows one city, rotating via _carTimer.
   _renderCarousel(el) {
     if (!this._clocks.length) return;
     const now = new Date();
-    // The clock tick calls this every second, but the cards only change when the
-    // visible set rotates or the minute rolls over — skip the rebuild otherwise.
+    // The clock tick calls this every second, but the tile only changes when the rotation
+    // advances or the minute rolls over — skip the rebuild otherwise.
     const key = this._carIdx + ":" + now.getHours() + ":" + now.getMinutes();
     if (key === this._carKey) return;
     this._carKey = key;
     const car = el.querySelector("#carousel");
     if (!car) return;
-    const n = this._clocks.length;
-    const visible = Math.min(3, n);
-    let html = "";
-    for (let k = 0; k < visible; k++) {
-      const c = this._clocks[(this._carIdx + k) % n];
-      html += `
-        <div class="wc">
-          <div class="city">${esc(c.label)} <span class="tz">${esc(tzAbbr(now, c.tz))}</span></div>
-          <div class="t">${fmt(now, { hour: "2-digit", minute: "2-digit", hour12: false }, c.tz)}</div>
-          <div class="d">${fmt(now, { weekday: "short", day: "numeric", month: "short" }, c.tz)}</div>
-        </div>`;
-    }
-    car.innerHTML = html;
+    const c = this._clocks[this._carIdx % this._clocks.length];
+    car.innerHTML = `
+      <div class="hs-k">🌍 ${esc(c.label)} <span class="tz">${esc(tzAbbr(now, c.tz))}</span></div>
+      <div class="hs-v">${fmt(now, { hour: "2-digit", minute: "2-digit", hour12: false }, c.tz)}</div>
+      <div class="hs-s">${fmt(now, { weekday: "short", day: "numeric", month: "short" }, c.tz)}</div>`;
   },
 
   unmount() {
@@ -379,21 +380,70 @@ export const home = {
     clearInterval(this._trkTimer);
     clearInterval(this._indoorTimer);
     clearInterval(this._airTimer);
+    clearInterval(this._wxCycTimer);
+    clearInterval(this._homeTimer);
     cancelAnimationFrame(this._tkRAF);
   },
 };
+
+// Severity -> colour class, shared by the air pills (module scope so wxCycleHtml can use it).
+const LVL = {
+  "Good": "lvl-good", "Low": "lvl-good", "Fair": "lvl-ok", "Moderate": "lvl-mod",
+  "Poor": "lvl-high", "High": "lvl-high", "Very poor": "lvl-bad", "Very high": "lvl-bad",
+  "Extreme": "lvl-bad", "Extremely poor": "lvl-bad",
+};
+const lvlClass = (band) => LVL[band] || "";
+
+// The weather card's detail rows are collapsed into one row that cycles through 3 pages
+// (stats / sun-moon / air), like the world clock. This builds one page's three pills.
+// The Govee live reading (sensor) overrides humidity + dew on the stats page.
+function wxCycleHtml(page, w, air, sensor) {
+  const c = (w && w.current) || {};
+  const unit = w?.units?.temperature || "°";
+  const useF = unit.includes("F");
+  const pill = (k, v, cls = "") =>
+    `<div class="item ${cls}"><span class="ck">${k}</span><span class="cv">${v}</span></div>`;
+  if (page === 1) {                                   // sun / sunset / moon
+    const moon = w?.moon || {};
+    const moonIco = MOON_EMOJI[moon.index] ?? "🌙";
+    return pill("🌅", fmtClock(w?.sun?.sunrise))
+      + pill("🌇", fmtClock(w?.sun?.sunset))
+      + `<div class="item" title="${esc(moon.name || "")}"><span class="ck">${moonIco}</span>`
+      + `<span class="cv">${Math.round((moon.illumination || 0) * 100)}%</span></div>`;
+  }
+  if (page === 2) {                                   // air quality / UV / pollen
+    const a = air || {};
+    // Abbreviate the longer bands so they never truncate inside a third-width pill.
+    const SHORT = { "Moderate": "Mod", "Very poor": "V.poor", "Extremely poor": "E.poor",
+      "Very high": "V.high", "Extreme": "Extr" };
+    const ap = (ico, label, val, band, cls = "") =>
+      `<div class="item ${cls}"><span class="ck">${ico}${label ? " " + label : ""}</span>`
+      + `<span class="cv">${val == null || val === "" ? "—" : esc(String(val))}</span>`
+      + `<span class="cb ${lvlClass(band)}">${esc(SHORT[band] || band || "")}</span></div>`;
+    return ap("💨", "Air", a.aqi?.value, a.aqi?.band)
+      + ap("🔆", "UV", a.uv?.value, a.uv?.band)
+      + ap("🌿", "", a.pollen?.type, a.pollen?.band, "wx-pollen");
+  }
+  // page 0: dew point / humidity / wind — with the Govee live override.
+  const live = sensor && sensor.enabled;
+  const humid = live && sensor.humidity != null ? sensor.humidity + "%"
+    : (c.humidity != null ? Math.round(c.humidity) + "%" : "—");
+  const dpVal = live ? (useF ? sensor.dew_point_f : sensor.dew_point_c) : null;
+  const dew = dpVal != null ? dpVal.toFixed(1) + unit
+    : (c.dew_point != null ? Math.round(c.dew_point) + unit : "—");
+  const gust = c.wind_gust != null ? ` (g${Math.round(c.wind_gust)})` : "";
+  const wind = `${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} `
+    + `${esc(w?.units?.wind || "")} ${esc(c.wind_compass || "")}`;
+  return pill("Dew", dew) + pill("Humidity", humid) + pill("Wind" + gust, wind, "wx-wind");
+}
 
 function renderWeather(el, w) {
   if (!w) { el.innerHTML = `<div class="err">Weather unavailable</div>`; return; }
   const c = w.current || {};
   const unit = w.units?.temperature || "°";
-  const windUnit = esc(w.units?.wind || "");
   const emoji = WMO_EMOJI[c.code] ?? "•";
-  const moon = w.moon || {};
-  const moonIco = MOON_EMOJI[moon.index] ?? "🌙";
   const days = (w.daily || []).slice(1, 5);
   const t = (x) => (x == null || Number.isNaN(x) ? "—" : Math.round(x) + unit);
-  const gust = c.wind_gust != null ? ` (gust ${Math.round(c.wind_gust)})` : "";
 
   el.innerHTML = `
     <div class="wx-now">
@@ -405,17 +455,8 @@ function renderWeather(el, w) {
         <div class="wx-sub">Feels ${t(c.apparent)}</div>
       </div>
     </div>
-    <div class="wx-stats">
-      <div class="item"><span class="k">Dew point</span><span class="v" id="wx-dew">${t(c.dew_point)}</span></div>
-      <div class="item"><span class="k">Humidity</span><span class="v" id="wx-humidity">${c.humidity != null ? Math.round(c.humidity) + "%" : "—"}</span></div>
-      <div class="item" style="flex:1.4"><span class="k">Wind${gust}</span><span class="v">${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} ${windUnit} ${esc(c.wind_compass || "")}</span></div>
-    </div>
-    <div class="wx-astro">
-      <div class="item">🌅 ${fmtClock(w.sun?.sunrise)}</div>
-      <div class="item">🌇 ${fmtClock(w.sun?.sunset)}</div>
-      <div class="item" title="${esc(moon.name || "")}">${moonIco} ${Math.round((moon.illumination || 0) * 100)}%</div>
-    </div>
-    <div class="wx-air" id="wx-air"></div>
+    <div class="wx-cycle" id="wx-cycle"></div>
+    <div class="wx-dots" id="wx-dots"><i></i><i></i><i></i></div>
     <div class="wx-forecast">
       ${days.map((d) => `
         <div class="wx-day">
@@ -428,6 +469,33 @@ function renderWeather(el, w) {
           ${d.precip_prob != null ? `<div class="pp">💧${d.precip_prob}%</div>` : ""}
         </div>`).join("")}
     </div>`;
+}
+
+// Fill the Indoor (Hive) + Solar (EcoFlow) tiles. Both degrade to "—" until configured.
+function renderHomeStrip(el, cfg, solar, indoor) {
+  const useF = (cfg.units?.temperature === "fahrenheit");
+  const ind = el.querySelector("#home-indoor");
+  const sol = el.querySelector("#home-solar");
+  if (ind) {
+    let v = "—", sub = "set up Hive";
+    if (indoor && indoor.enabled && indoor.temperature_c != null) {
+      const t = useF ? indoor.temperature_c * 9 / 5 + 32 : indoor.temperature_c;
+      v = t.toFixed(1) + (useF ? "°F" : "°C");
+      sub = indoor.target_c != null ? `target ${Math.round(indoor.target_c)}°` : "";
+    }
+    ind.innerHTML = `<div class="hs-k">🏠 Indoor</div><div class="hs-v">${v}</div>`
+      + `<div class="hs-s">${esc(sub)}</div>`;
+  }
+  if (sol) {
+    let v = "—", sub = "set up EcoFlow";
+    if (solar && solar.enabled) {
+      const w = solar.watts_now;
+      v = w == null ? "0 W" : (w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W");
+      sub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today` : "now";
+    }
+    sol.innerHTML = `<div class="hs-k">☀ Solar</div><div class="hs-v">${v}</div>`
+      + `<div class="hs-s">${esc(sub)}</div>`;
+  }
 }
 
 function renderTicker(el, data, stale) {
