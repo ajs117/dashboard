@@ -126,7 +126,7 @@ export const home = {
         <div class="home-strip">
           <div class="hs-tile" id="countdown"><div class="hs-k">⏳ Countdown</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-indoor"><div class="hs-k">🏠 Indoor</div><div class="hs-v">—</div></div>
-          <div class="hs-tile" id="home-solar"><div class="hs-k">☀ Solar</div><div class="hs-v">—</div></div>
+          <div class="hs-tile" id="home-solar"><div class="hs-k">🌞 Solar</div><div class="hs-v">—</div></div>
         </div>
 
         <div class="ticker-bar"><div class="ticker" id="ticker">
@@ -517,7 +517,7 @@ function renderHomeStrip(el, cfg, solar, indoor) {
       v = w == null ? "0 W" : (w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W");
       sub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today` : "now";
     }
-    sol.innerHTML = `<div class="hs-k">☀ Solar</div><div class="hs-v">${v}</div>`
+    sol.innerHTML = `<div class="hs-k">🌞 Solar</div><div class="hs-v">${v}</div>`
       + `<div class="hs-s">${esc(sub)}</div>`;
   }
 }

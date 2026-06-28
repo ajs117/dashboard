@@ -44,6 +44,15 @@ DROP
   fi
 done
 
+# The OS image ships two zram managers: systemd-zram-generator (which already creates and
+# mounts /dev/zram0) and zram-tools' zramswap.service, which then fails on boot trying to
+# grab the already-mounted device ("Device busy"). Mask the redundant one — zram swap still
+# works via the generator; this just removes the scary boot failure.
+if systemctl list-unit-files zramswap.service >/dev/null 2>&1; then
+  systemctl disable --now zramswap.service 2>/dev/null || true
+  systemctl mask zramswap.service 2>/dev/null || true
+fi
+
 systemctl daemon-reload
 systemctl restart systemd-journald
 systemctl enable --now dashboard-wifi-powersave.service
