@@ -78,7 +78,7 @@ export const home = {
   _tkRAF: null, _tkOff: 0, _carKey: null,
   _feed: [], _feedIdx: 0, _feedTimer: null, _newsTimer: null, _factsTimer: null,
   _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
-  _air: null, _airTimer: null, _wx: null, _wxPage: 0, _wxCycTimer: null, _homeTimer: null,
+  _air: null, _airTimer: null, _wx: null, _wxPage: 0, _homeTimer: null, _sec: 0,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -92,6 +92,7 @@ export const home = {
     this._air = null;
     this._wx = null;
     this._wxPage = 0;
+    this._sec = 0;
 
     el.innerHTML = `
       <div class="module home">
@@ -144,19 +145,27 @@ export const home = {
 
     const bigTime = el.querySelector("#big-time");
     const bigDate = el.querySelector("#big-date");
+    // One 1-second tick drives the clock and both carousels, so their motion is staggered
+    // and calm: the world clock rotates every 10s (at :00), the weather page every 10s but
+    // offset by 5s (at :05) — only one thing ever changes at a time, each with a fade.
     const tick = () => {
       const now = new Date();
       bigTime.textContent = fmt(now, { hour: "2-digit", minute: "2-digit",
         second: "2-digit", hour12: false }, localTz);
       bigDate.textContent = fmt(now, { weekday: "long", day: "numeric",
         month: "long", year: "numeric" }, localTz);
+      this._sec += 1;
+      if (this._sec % 10 === 0) {
+        this._carIdx = (this._carIdx + 1) % Math.max(1, this._clocks.length);
+      }
+      if (this._sec % 10 === 5 && this._wx) {
+        this._wxPage = (this._wxPage + 1) % 3;
+        renderWxCycle();
+      }
       this._renderCarousel(el);
     };
     tick();
-    this._timer = setInterval(tick, 1000);
-    this._carTimer = setInterval(() => {
-      this._carIdx = (this._carIdx + 1) % Math.max(1, this._clocks.length);
-    }, 5000);
+    this._timer = setInterval(tick, 1000);   // drives clock + both staggered carousels
 
     // --- News + facts feed (BBC UK+World mix + facts API; bundled facts = offline fallback) ---
     this._news = [];
@@ -274,10 +283,6 @@ export const home = {
     await loadWeather();
     if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._wxTimer = setInterval(loadWeather, (cfg.refresh?.weather || 600) * 1000);
-    this._wxCycTimer = setInterval(() => {
-      this._wxPage = (this._wxPage + 1) % 3;
-      renderWxCycle();
-    }, 6000);
     loadAir();
     this._airTimer = setInterval(loadAir, (cfg.cache?.air || 1800) * 1000);
     await loadSensor();
@@ -380,7 +385,6 @@ export const home = {
     clearInterval(this._trkTimer);
     clearInterval(this._indoorTimer);
     clearInterval(this._airTimer);
-    clearInterval(this._wxCycTimer);
     clearInterval(this._homeTimer);
     cancelAnimationFrame(this._tkRAF);
   },
@@ -401,28 +405,29 @@ function wxCycleHtml(page, w, air, sensor) {
   const c = (w && w.current) || {};
   const unit = w?.units?.temperature || "°";
   const useF = unit.includes("F");
-  const pill = (k, v, cls = "") =>
-    `<div class="item ${cls}"><span class="ck">${k}</span><span class="cv">${v}</span></div>`;
+  // Every pill is the same shape — a centred label over a centred value — so the row reads
+  // consistently as the pages cycle (no jumping). `value` may contain a coloured band span.
+  const pill = (label, value, title = "") =>
+    `<div class="item"${title ? ` title="${esc(title)}"` : ""}>`
+    + `<div class="ck">${label}</div><div class="cv">${value}</div></div>`;
+  const band = (b) => {
+    const SHORT = { "Moderate": "Mod", "Very poor": "V.poor", "Extremely poor": "E.poor",
+      "Very high": "V.high", "Extreme": "Extr" };
+    return b ? ` <span class="cb ${lvlClass(b)}">${esc(SHORT[b] || b)}</span>` : "";
+  };
   if (page === 1) {                                   // sun / sunset / moon
     const moon = w?.moon || {};
     const moonIco = MOON_EMOJI[moon.index] ?? "🌙";
-    return pill("🌅", fmtClock(w?.sun?.sunrise))
-      + pill("🌇", fmtClock(w?.sun?.sunset))
-      + `<div class="item" title="${esc(moon.name || "")}"><span class="ck">${moonIco}</span>`
-      + `<span class="cv">${Math.round((moon.illumination || 0) * 100)}%</span></div>`;
+    return pill("🌅 Sunrise", fmtClock(w?.sun?.sunrise))
+      + pill("🌇 Sunset", fmtClock(w?.sun?.sunset))
+      + pill(`${moonIco} Moon`, `${Math.round((moon.illumination || 0) * 100)}%`, moon.name || "");
   }
   if (page === 2) {                                   // air quality / UV / pollen
     const a = air || {};
-    // Abbreviate the longer bands so they never truncate inside a third-width pill.
-    const SHORT = { "Moderate": "Mod", "Very poor": "V.poor", "Extremely poor": "E.poor",
-      "Very high": "V.high", "Extreme": "Extr" };
-    const ap = (ico, label, val, band, cls = "") =>
-      `<div class="item ${cls}"><span class="ck">${ico}${label ? " " + label : ""}</span>`
-      + `<span class="cv">${val == null || val === "" ? "—" : esc(String(val))}</span>`
-      + `<span class="cb ${lvlClass(band)}">${esc(SHORT[band] || band || "")}</span></div>`;
-    return ap("💨", "Air", a.aqi?.value, a.aqi?.band)
-      + ap("🔆", "UV", a.uv?.value, a.uv?.band)
-      + ap("🌿", "", a.pollen?.type, a.pollen?.band, "wx-pollen");
+    const v = (x) => (x == null || x === "" ? "—" : esc(String(x)));
+    return pill("💨 Air", `${v(a.aqi?.value)}${band(a.aqi?.band)}`)
+      + pill("🔆 UV", `${v(a.uv?.value)}${band(a.uv?.band)}`)
+      + pill("🌿 Pollen", `${v(a.pollen?.type)}${band(a.pollen?.band)}`);
   }
   // page 0: dew point / humidity / wind — with the Govee live override.
   const live = sensor && sensor.enabled;
@@ -431,10 +436,12 @@ function wxCycleHtml(page, w, air, sensor) {
   const dpVal = live ? (useF ? sensor.dew_point_f : sensor.dew_point_c) : null;
   const dew = dpVal != null ? dpVal.toFixed(1) + unit
     : (c.dew_point != null ? Math.round(c.dew_point) + unit : "—");
-  const gust = c.wind_gust != null ? ` (g${Math.round(c.wind_gust)})` : "";
-  const wind = `${c.wind_speed != null ? Math.round(c.wind_speed) : "—"} `
-    + `${esc(w?.units?.wind || "")} ${esc(c.wind_compass || "")}`;
-  return pill("Dew", dew) + pill("Humidity", humid) + pill("Wind" + gust, wind, "wx-wind");
+  // Wind reads "10/18 SW" — speed/gust + compass (gust omitted when not reported).
+  const spd = c.wind_speed != null ? Math.round(c.wind_speed) : "—";
+  const wind = (c.wind_gust != null ? `${spd}/${Math.round(c.wind_gust)}` : `${spd}`)
+    + ` ${esc(c.wind_compass || "")}`;
+  return pill("Dew point", dew) + pill("Humidity", humid)
+    + pill(`Wind ${esc(w?.units?.wind || "")}`, wind);
 }
 
 function renderWeather(el, w) {
@@ -481,7 +488,7 @@ function renderHomeStrip(el, cfg, solar, indoor) {
     if (indoor && indoor.enabled && indoor.temperature_c != null) {
       const t = useF ? indoor.temperature_c * 9 / 5 + 32 : indoor.temperature_c;
       v = t.toFixed(1) + (useF ? "°F" : "°C");
-      sub = indoor.target_c != null ? `target ${Math.round(indoor.target_c)}°` : "";
+      sub = indoor.rooms ? `avg · ${indoor.rooms} rooms` : "";
     }
     ind.innerHTML = `<div class="hs-k">🏠 Indoor</div><div class="hs-v">${v}</div>`
       + `<div class="hs-s">${esc(sub)}</div>`;

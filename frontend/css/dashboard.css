@@ -98,17 +98,17 @@ html, body {
 .wx-temprow { display: flex; align-items: baseline; gap: 8px; }
 .wx-live { color: var(--good); font-size: 13px; font-weight: 700; }   /* live Govee reading */
 .wx-live:empty { display: none; }
-/* Cycling weather detail row: 3 pages (stats / sun-moon / air) rotate in one row. */
-.wx-cycle { display: flex; gap: 8px; margin: 10px 0 4px; min-height: 46px; }
-.wx-cycle .item { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 7px 11px;
-                  display: flex; align-items: baseline; gap: 6px; white-space: nowrap;
-                  overflow: hidden; }
-.wx-cycle .ck { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
-.wx-cycle .cv { font-size: 17px; font-weight: 700; }
-.wx-cycle .cb { font-size: 12px; font-weight: 600; margin-left: auto; }
-.wx-cycle .wx-pollen { flex: 1.6; }   /* pollen carries a type + band -> needs more room */
-.wx-cycle .wx-wind { flex: 1.6; }     /* wind = speed + unit + compass -> widest stat */
-.wx-cycle .wx-wind .cv { font-size: 15px; }
+/* Cycling weather detail row: 3 pages (stats / sun-moon / air) rotate in one row.
+   Each pill is a centred label-over-value so the row stays consistent across pages. */
+.wx-cycle { display: flex; gap: 8px; margin: 10px 0 4px; }
+.wx-cycle .item { flex: 1; min-width: 0; min-height: 50px; background: var(--panel-2);
+                  border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column;
+                  align-items: center; justify-content: center; gap: 2px; text-align: center;
+                  white-space: nowrap; overflow: hidden; animation: wxfade .35s ease; }
+.wx-cycle .ck { font-size: 12px; color: var(--muted); }
+.wx-cycle .cv { font-size: 18px; font-weight: 700; }
+.wx-cycle .cb { font-size: 15px; font-weight: 600; }
+@keyframes wxfade { from { opacity: 0; } to { opacity: 1; } }
 .lvl-good { color: var(--good); }
 .lvl-ok   { color: #8fcf6b; }
 .lvl-mod  { color: var(--warn); }
@@ -139,6 +139,7 @@ html, body {
 .hs-k .tz { font-size: 11px; }
 .hs-v { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .hs-s { font-size: 12px; color: var(--muted); }
+#carousel > div { animation: wxfade .35s ease; }   /* fade the clock as it cycles cities */
 
 /* Stocks ticker (full-width scrolling bar) */
 .ticker-bar { grid-column: 1 / span 2; grid-row: 5; background: var(--panel);
