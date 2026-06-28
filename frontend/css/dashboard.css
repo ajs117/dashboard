@@ -50,9 +50,11 @@ html, body {
   grid-template-columns: 1.45fr 1fr;
   grid-template-rows: auto auto auto 1fr auto;
 }
-.clock-card { grid-column: 1; grid-row: 1; }
-.big-time { font-size: 78px; font-weight: 700; line-height: 1; letter-spacing: 2px; }
-.big-date { font-size: 22px; color: var(--muted); margin-top: 4px; }
+.clock-card { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: 14px; }
+.clock-main { flex: 1; min-width: 0; }
+.clock-card .wc-mini { flex: 0 0 auto; width: 180px; align-self: stretch; }
+.big-time { font-size: 74px; font-weight: 700; line-height: 1; letter-spacing: 1px; }
+.big-date { font-size: 21px; color: var(--muted); margin-top: 4px; }
 
 /* News + facts panel (under the clock) — fixed height so rotating content never reflows */
 .news-card { grid-column: 1; grid-row: 2; height: 92px; background: var(--panel);

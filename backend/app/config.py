@@ -99,6 +99,7 @@ def public() -> dict[str, Any]:
         "location": d.get("location", {}),
         "units": d.get("units", {}),
         "world_clocks": d.get("world_clocks", []),
+        "countdowns": d.get("countdowns", []),
         "trains": {k: v for k, v in trains.items() if k != "token"},
         "aircraft": d.get("aircraft", {}),
         "refresh": d.get("refresh", {}),

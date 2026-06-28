@@ -18,9 +18,10 @@ from typing import Any
 
 from . import client
 
-# Hive's public web Cognito client (not a secret — it ships in the browser app).
+# Hive's public Cognito app client (not a secret). This is the SRP-capable client the
+# one-time bootstrap logs in with, so the refresh token is minted for it.
 _COGNITO = "https://cognito-idp.eu-west-1.amazonaws.com/"
-_CLIENT_ID = "jivhemv3fvn8cr32qrggqpcf8"
+_CLIENT_ID = "3rl4i0ajrmtdm8sbre54p9dvd9"
 _NODES = "https://beekeeper-uk.hivehome.com/1.0/nodes/all"
 
 # Cache the minted idToken so we don't refresh on every poll (idTokens last ~1h).

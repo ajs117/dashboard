@@ -79,6 +79,7 @@ export const home = {
   _feed: [], _feedIdx: 0, _feedTimer: null, _newsTimer: null, _factsTimer: null,
   _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
   _air: null, _airTimer: null, _wx: null, _wxPage: 0, _homeTimer: null, _sec: 0,
+  _cdIdx: 0, _cdDay: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -93,12 +94,17 @@ export const home = {
     this._wx = null;
     this._wxPage = 0;
     this._sec = 0;
+    this._cdIdx = 0;
+    this._cdDay = null;
 
     el.innerHTML = `
       <div class="module home">
         <div class="clock-card">
-          <div class="big-time" id="big-time">--:--:--</div>
-          <div class="big-date" id="big-date"></div>
+          <div class="clock-main">
+            <div class="big-time" id="big-time">--:--:--</div>
+            <div class="big-date" id="big-date"></div>
+          </div>
+          <div class="hs-tile wc-mini" id="carousel"></div>
         </div>
 
         <div class="news-card" id="news"><span class="muted">Loading news…</span></div>
@@ -118,7 +124,7 @@ export const home = {
         <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
 
         <div class="home-strip">
-          <div class="hs-tile" id="carousel"></div>
+          <div class="hs-tile" id="countdown"><div class="hs-k">⏳ Countdown</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-indoor"><div class="hs-k">🏠 Indoor</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-solar"><div class="hs-k">☀ Solar</div><div class="hs-v">—</div></div>
         </div>
@@ -163,6 +169,17 @@ export const home = {
         renderWxCycle();
       }
       this._renderCarousel(el);
+      // Countdown tile: render on first tick + at midnight (day change); cycle if several.
+      const cds = cfg.countdowns || [];
+      if (this._sec % 10 === 0 && cds.length > 1) {
+        this._cdIdx = (this._cdIdx + 1) % cds.length;
+        renderCountdown(el, cds, this._cdIdx);
+      }
+      const dayKey = now.toDateString();
+      if (dayKey !== this._cdDay) {
+        this._cdDay = dayKey;
+        renderCountdown(el, cds, this._cdIdx);
+      }
     };
     tick();
     this._timer = setInterval(tick, 1000);   // drives clock + both staggered carousels
@@ -503,6 +520,27 @@ function renderHomeStrip(el, cfg, solar, indoor) {
     sol.innerHTML = `<div class="hs-k">☀ Solar</div><div class="hs-v">${v}</div>`
       + `<div class="hs-s">${esc(sub)}</div>`;
   }
+}
+
+// Countdown tile: whole days until a dated event (cycles through several, like the clock).
+function renderCountdown(el, list, idx) {
+  const box = el.querySelector("#countdown");
+  if (!box) return;
+  if (!list || !list.length) {
+    box.innerHTML = `<div class="hs-k">⏳ Countdown</div><div class="hs-v">—</div>`
+      + `<div class="hs-s">add in config</div>`;
+    return;
+  }
+  const c = list[idx % list.length];
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const target = new Date(`${c.date}T00:00:00`);
+  const ok = !Number.isNaN(target.getTime());
+  const days = ok ? Math.round((target - today) / 86400000) : NaN;
+  const when = ok ? target.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
+  const val = !ok ? "—" : days > 0 ? days : days === 0 ? "Today" : "passed";
+  box.innerHTML = `<div class="hs-k">${esc(c.emoji || "⏳")} ${esc(c.label || "")}</div>`
+    + `<div class="hs-v">${val}</div>`
+    + `<div class="hs-s">${days > 0 ? "days · " : ""}${esc(when)}</div>`;
 }
 
 function renderTicker(el, data, stale) {

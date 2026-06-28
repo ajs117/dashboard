@@ -26,6 +26,10 @@ world_clocks:
   - { label: "Mumbai",      tz: "Asia/Kolkata" }
   - { label: "Hong Kong",   tz: "Asia/Hong_Kong" }
 
+# --- Home page countdown tile (whole days until dated events; cycles if several) ---
+countdowns:
+  - { label: "Bali", date: "2026-09-26", emoji: "✈️" }
+
 # --- Home page stocks/indices ticker (Yahoo Finance symbols) ---
 stocks:
   enabled: true
