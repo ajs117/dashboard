@@ -254,7 +254,7 @@ export const home = {
 
     const loadSensor = async () => {
       try {
-        const env = await ctx.api("/api/indoor");
+        const env = await ctx.api("/api/sensor");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
         this._sensor = env.data;
         applySensor();
@@ -291,7 +291,7 @@ export const home = {
     const loadHome = async () => {
       const [solar, indoor] = await Promise.all([
         ctx.api("/api/solar").catch(() => null),
-        ctx.api("/api/indoor-hive").catch(() => null),
+        ctx.api("/api/indoor").catch(() => null),
       ]);
       if (ctx.isCurrent && !ctx.isCurrent()) return;
       renderHomeStrip(el, cfg, solar && solar.data, indoor && indoor.data);
@@ -501,11 +501,12 @@ function renderHomeStrip(el, cfg, solar, indoor) {
   const ind = el.querySelector("#home-indoor");
   const sol = el.querySelector("#home-solar");
   if (ind) {
-    let v = "—", sub = "set up Hive";
-    if (indoor && indoor.enabled && indoor.temperature_c != null) {
-      const t = useF ? indoor.temperature_c * 9 / 5 + 32 : indoor.temperature_c;
-      v = t.toFixed(1) + (useF ? "°F" : "°C");
-      sub = indoor.rooms ? `avg · ${indoor.rooms} rooms` : "";
+    let v = "—", sub = "add 2nd Govee";
+    if (indoor && indoor.enabled) {
+      const t = useF ? indoor.temperature_f : indoor.temperature_c;
+      if (t != null) v = t.toFixed(1) + (useF ? "°F" : "°C");
+      sub = indoor.humidity != null ? `${indoor.humidity}% humidity`
+        : (indoor.online === false ? "sensor offline" : "");
     }
     ind.innerHTML = `<div class="hs-k">🏠 Indoor</div><div class="hs-v">${v}</div>`
       + `<div class="hs-s">${esc(sub)}</div>`;

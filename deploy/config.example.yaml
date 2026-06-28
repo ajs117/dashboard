@@ -101,11 +101,14 @@ ecoflow:
   serial: ""            # device serial number (SN) to read
   pv_field: ""          # optional: override which quota field holds solar input watts
 
-# --- Hive heating -> indoor temperature (no official API; 2FA -> token capture) ---
-# Captured once from the Hive web app (see Phase 3). Sensitive: keep Pi-only, gitignored.
-hive:
+# --- Second Govee sensor, placed indoors (the first `govee` is the outdoor/local one) ---
+# Same Govee account/api_key; just a different device. Drives the home-strip Indoor tile.
+govee_indoor:
   enabled: false
-  refresh_token: ""
+  api_key: ""           # same key as `govee` above is fine
+  sku: ""               # device model (see GET /api/govee/devices)
+  device: ""            # device id/MAC
+  reports_fahrenheit: true
 
 # --- Cache TTLs (seconds) ---
 cache:
@@ -119,7 +122,6 @@ cache:
   indoor: 60            # Govee thermo-hygrometer poll
   air: 1800             # air quality / UV / pollen (Open-Meteo)
   solar: 60             # EcoFlow solar output
-  indoor_hive: 60       # Hive indoor temperature
 
 # --- Frontend refresh intervals (seconds) ---
 refresh:

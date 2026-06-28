@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from .. import config
 from ..cache import cache
 from ..providers import (
-    aircraft, air_quality, ecoflow, facts, govee, hive, news, photos, radar,
+    aircraft, air_quality, ecoflow, facts, govee, news, photos, radar,
     radar_forecast, route, stocks, trains, weather,
 )
 
@@ -106,11 +106,12 @@ async def get_facts() -> dict[str, Any]:
     return await cache.get_or_fetch("facts", ttl, lambda: facts.fetch(cfg))
 
 
-@router.get("/indoor")
-async def get_indoor() -> dict[str, Any]:
+@router.get("/sensor")
+async def get_sensor() -> dict[str, Any]:
+    # Govee #1: the live local/outdoor reading that overrides the headline temperature.
     cfg = config.get()
     ttl = _ttls().get("indoor", 60)
-    return await cache.get_or_fetch("indoor", ttl, lambda: govee.fetch(cfg))
+    return await cache.get_or_fetch("sensor", ttl, lambda: govee.fetch(cfg))
 
 
 @router.get("/solar")
@@ -120,11 +121,12 @@ async def get_solar() -> dict[str, Any]:
     return await cache.get_or_fetch("solar", ttl, lambda: ecoflow.fetch(cfg))
 
 
-@router.get("/indoor-hive")
-async def get_indoor_hive() -> dict[str, Any]:
+@router.get("/indoor")
+async def get_indoor() -> dict[str, Any]:
+    # Govee #2: the indoor sensor shown on the home-strip Indoor tile.
     cfg = config.get()
-    ttl = _ttls().get("indoor_hive", 60)
-    return await cache.get_or_fetch("indoor_hive", ttl, lambda: hive.fetch(cfg))
+    ttl = _ttls().get("indoor", 60)
+    return await cache.get_or_fetch("indoor_room", ttl, lambda: govee.fetch(cfg, "govee_indoor"))
 
 
 @router.get("/govee/devices")

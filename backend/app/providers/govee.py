@@ -84,8 +84,10 @@ async def list_devices(api_key: str) -> dict[str, Any]:
     return resp.json()
 
 
-async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
-    g = cfg.get("govee", {}) or {}
+async def fetch(cfg: dict[str, Any], section: str = "govee") -> dict[str, Any]:
+    """Poll a Govee sensor. `section` selects the config block — "govee" is the outdoor/
+    local sensor that overrides the headline temp; "govee_indoor" is a 2nd indoor sensor."""
+    g = cfg.get(section, {}) or {}
     if not (g.get("enabled") and g.get("api_key") and g.get("device") and g.get("sku")):
         return {"enabled": False}
     body = {"requestId": "dashboard", "payload": {"sku": g["sku"], "device": g["device"]}}
