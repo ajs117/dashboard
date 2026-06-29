@@ -146,8 +146,9 @@ async function loadSettings() {
       <input id="s-efs" placeholder="${ef.secret_key?'•••• (set)':'secret key'}" style="margin-top:6px">
       <input id="s-efsn" value="${esc(ef.serial)}" placeholder="serial" style="margin-top:6px">
       <label>Darwin (trains) token</label><input id="s-darwin" placeholder="${tr.token?'•••• (set)':''}"></div>
-    <div class="card"><h2 style="margin-top:0">Parcels <span class="muted">(Ship24 · courier auto-detected)</span></h2>
-      <label>Ship24 API key</label><input id="s-pkey" placeholder="${pa.api_key?'•••• (set)':'free key from ship24.com'}">
+    <div class="card"><h2 style="margin-top:0">Parcels <span class="muted">(WhereParcel · courier auto-detected)</span></h2>
+      <div class="two"><div><label>API key</label><input id="s-pkey" placeholder="${pa.api_key?'•••• (set)':'whereparcel.com (free)'}"></div>
+        <div><label>Secret key</label><input id="s-psec" placeholder="${pa.secret_key?'•••• (set)':''}"></div></div>
       <div id="parcel-list" style="margin-top:8px"></div>
       <button class="sm" id="add-parcel">+ Add parcel</button></div>`;
 
@@ -199,7 +200,7 @@ $("#save").onclick = async () => {
     govee_indoor:{ sku:val("s-gisku"), device:val("s-gidev"), enabled: !!(val("s-gisku") && val("s-gidev")) },
     ecoflow:{ access_key:val("s-efa"), secret_key:val("s-efs"), serial:val("s-efsn") },
     trains:{ token:val("s-darwin") },
-    parcel_api:{ provider:"ship24", api_key:val("s-pkey") },
+    parcel_api:{ provider:"whereparcel", api_key:val("s-pkey"), secret_key:val("s-psec") },
   };
   try {
     await post("/api/admin/config", patch);

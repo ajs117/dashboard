@@ -67,7 +67,8 @@ def _sync_parcels() -> None:
     becomes tracker id 'parcel:<id>', fetched via Ship24 (alerts on status change).
     """
     cfg = config.get()
-    key = (cfg.get("parcel_api") or {}).get("api_key")
+    pa = cfg.get("parcel_api") or {}
+    key, secret = pa.get("api_key"), pa.get("secret_key", "")
     wanted: set[str] = set()
     for p in (cfg.get("parcels") or []):
         pid = str(p.get("id") or p.get("tracking") or "").strip()
@@ -76,10 +77,11 @@ def _sync_parcels() -> None:
             continue
         tid = f"parcel:{pid}"
         wanted.add(tid)
+        carrier = (p.get("carrier") or "").strip()
 
-        async def _fetch(tracking=tracking, key=key):
+        async def _fetch(tracking=tracking, key=key, secret=secret, carrier=carrier):
             from . import tracker_routines
-            return await tracker_routines.parcel_status(key, tracking)
+            return await tracker_routines.parcel_status(key, tracking, secret, carrier)
 
         _DEFS[tid] = {"label": p.get("label") or tracking, "unit": "", "kind": "auto",
                       "fetch": _fetch, "note": f"📦 {tracking}"}
