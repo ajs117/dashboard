@@ -240,7 +240,11 @@ export const home = {
       const tEl = el.querySelector("#wx-temp");
       const mEl = el.querySelector("#wx-live");
       if (tEl && haveT) tEl.textContent = t.toFixed(1) + (useF ? "°F" : "°C");
-      if (mEl) mEl.textContent = s.online === false ? "● sensor offline" : (haveT || haveH ? "● live" : "");
+      if (mEl) {
+        const offline = s.online === false;
+        mEl.textContent = offline ? "● offline" : (haveT || haveH ? "● live" : "");
+        mEl.classList.toggle("offline", offline);   // grey, not the green "live" colour
+      }
     };
 
     // The weather detail row cycles through 3 pages (stats / sun-moon / air); this rebuilds
