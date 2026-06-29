@@ -18,8 +18,8 @@ router = APIRouter(prefix="/api", tags=["remote"])
 # Keys whose values are never sent to the browser and are only ever overwritten.
 SECRET_KEYS = {
     "admin_token", "token", "api_key", "access_key", "secret_key", "refresh_token",
-    "licence_number", "national_insurance", "postcode", "search_id", "account_id",
-}
+    "licence_number", "national_insurance", "postcode",
+}   # NB: search_id/account_id are just identifiers, not secrets — editable in the remote
 _MASK = "•••• (set)"
 
 

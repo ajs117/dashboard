@@ -119,7 +119,7 @@ async function loadSettings() {
   const loc = cfg.location||{}, u = cfg.units||{};
   const clocks = cfg.world_clocks||[], cds = cfg.countdowns||[];
   const g = cfg.govee||{}, gi = cfg.govee_indoor||{}, ef = cfg.ecoflow||{}, tr = cfg.trains||{};
-  const pa = cfg.parcel_api||{}, parcels = cfg.parcels||[];
+  const pa = cfg.parcel_api||{}, parcels = cfg.parcels||[], ht = cfg.holiday_tracker||{};
   const opt = (v,sel) => `<option ${v===sel?"selected":""}>${v}</option>`;
   $("#settings-body").innerHTML = `
     <div class="card"><h2 style="margin-top:0">Location</h2>
@@ -146,6 +146,9 @@ async function loadSettings() {
       <input id="s-efs" placeholder="${ef.secret_key?'•••• (set)':'secret key'}" style="margin-top:6px">
       <input id="s-efsn" value="${esc(ef.serial)}" placeholder="serial" style="margin-top:6px">
       <label>Darwin (trains) token</label><input id="s-darwin" placeholder="${tr.token?'•••• (set)':''}"></div>
+    <div class="card"><h2 style="margin-top:0">Holiday price <span class="muted">(re-paste searchId if it freezes)</span></h2>
+      <div class="two"><div><label>Search ID</label><input id="s-hsid" value="${esc(ht.search_id)}"></div>
+        <div><label>Account ID</label><input id="s-hacc" value="${esc(ht.account_id)}"></div></div></div>
     <div class="card"><h2 style="margin-top:0">Parcels <span class="muted">(WhereParcel · courier auto-detected)</span></h2>
       <div class="two"><div><label>API key</label><input id="s-pkey" placeholder="${pa.api_key?'•••• (set)':'whereparcel.com (free)'}"></div>
         <div><label>Secret key</label><input id="s-psec" placeholder="${pa.secret_key?'•••• (set)':''}"></div></div>
@@ -201,6 +204,7 @@ $("#save").onclick = async () => {
     ecoflow:{ access_key:val("s-efa"), secret_key:val("s-efs"), serial:val("s-efsn") },
     trains:{ token:val("s-darwin") },
     parcel_api:{ provider:"whereparcel", api_key:val("s-pkey"), secret_key:val("s-psec") },
+    holiday_tracker:{ search_id: parseInt(val("s-hsid"))||0, account_id: val("s-hacc") },
   };
   try {
     await post("/api/admin/config", patch);
