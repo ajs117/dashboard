@@ -201,7 +201,10 @@ $("#save").onclick = async () => {
     trains:{ token:val("s-darwin") },
     parcel_api:{ provider:"ship24", api_key:val("s-pkey") },
   };
-  try { await post("/api/admin/config", patch); toast("Saved — reload the screen to apply");
+  try {
+    await post("/api/admin/config", patch);
+    await post("/api/remote/cmd", {action:"reload"});   // apply changes on the screen now
+    toast("Saved & screen reloading");
   } catch(e){ toast("Save failed: "+e.message, true); }
 };
 

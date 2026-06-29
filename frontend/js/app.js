@@ -92,7 +92,10 @@ function startRemotePoll() {
     try {
       const c = await api("/api/remote/cmd");
       if (lastSeq === -1) { lastSeq = c.seq; return; }   // ignore the command present at boot
-      if (c.seq > lastSeq) {
+      // React to ANY change, not just an increase: the backend's seq resets to 0 on a
+      // restart, so ">" would wedge the kiosk (it remembers a higher number) and ignore
+      // every later command. "!==" recovers; a no-op seq 0 has action null, so it's safe.
+      if (c.seq !== lastSeq) {
         lastSeq = c.seq;
         if (c.action === "reload") location.reload();
         else if (c.action === "go" && c.value) go(c.value);
