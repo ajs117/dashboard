@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dashboard Remote</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#151b23; --panel2:#1d2530; --line:#2a3340;
+          --fg:#e8edf2; --muted:#8a97a6; --accent:#4ea3ff; --good:#46c06a; --bad:#e5544b; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif;
+         padding: 12px 12px 40px; max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 6px 2px 14px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
+       margin: 22px 2px 8px; }
+  .tabs { display:flex; gap:8px; position:sticky; top:0; background:var(--bg); padding:8px 0; z-index:5; }
+  .tab { flex:1; padding:11px; text-align:center; background:var(--panel); border:1px solid var(--line);
+         border-radius:12px; font-weight:600; cursor:pointer; }
+  .tab.on { background:var(--accent); color:#04111f; border-color:var(--accent); }
+  .panel { display:none; } .panel.on { display:block; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  button.act { padding:16px; font-size:16px; font-weight:700; border-radius:14px; border:1px solid var(--line);
+        background:var(--panel2); color:var(--fg); cursor:pointer; }
+  button.act:active { background:var(--line); }
+  button.primary { background:var(--accent); color:#04111f; border-color:var(--accent); }
+  button.danger { background:var(--bad); color:#fff; border-color:var(--bad); }
+  button.sm { padding:9px 12px; font-size:14px; border-radius:10px; border:1px solid var(--line);
+        background:var(--panel2); color:var(--fg); cursor:pointer; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input, select { width:100%; padding:11px; font-size:16px; background:var(--panel2);
+        border:1px solid var(--line); border-radius:10px; color:var(--fg); }
+  .row { display:flex; gap:8px; align-items:flex-end; }
+  .row > div { flex:1; }
+  .row .x { flex:0 0 auto; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--good);
+        color:#04111f; padding:10px 18px; border-radius:12px; font-weight:700; opacity:0;
+        transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .toast.err { background:var(--bad); color:#fff; }
+  .muted { color:var(--muted); font-size:13px; }
+  .trk { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 0;
+        border-bottom:1px solid var(--line); }
+  .trk:last-child { border-bottom:0; }
+</style>
+</head>
+<body>
+  <h1>📡 Dashboard Remote</h1>
+  <div class="tabs">
+    <div class="tab on" data-tab="screen">Screen</div>
+    <div class="tab" data-tab="settings">Settings</div>
+    <div class="tab" data-tab="trackers">Trackers</div>
+  </div>
+
+  <div class="panel on" id="screen">
+    <h2>Show on the dashboard</h2>
+    <div class="grid">
+      <button class="act" data-go="home">🏠 Home</button>
+      <button class="act" data-go="aircraft">✈️ Aircraft</button>
+      <button class="act" data-go="radar">🌧️ Rain Radar</button>
+      <button class="act" data-go="trains">🚆 Trains</button>
+      <button class="act" data-go="tracker">📈 Tracker</button>
+      <button class="act" id="reload">🔄 Reload screen</button>
+    </div>
+    <h2>Power</h2>
+    <button class="act danger" id="reboot" style="width:100%">⏻ Reboot the Pi</button>
+  </div>
+
+  <div class="panel" id="settings">
+    <div id="settings-body"><p class="muted">Loading…</p></div>
+    <button class="act primary" id="save" style="width:100%; margin-top:6px">💾 Save settings</button>
+  </div>
+
+  <div class="panel" id="trackers">
+    <div id="trackers-body"><p class="muted">Loading…</p></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script type="module">
+const $ = (s, r=document) => r.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function toast(msg, err=false) {
+  const t = $("#toast"); t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
+  setTimeout(() => t.className = "toast", 1600);
+}
+async function post(path, body) {
+  const r = await fetch(path, { method:"POST", headers:{"Content-Type":"application/json"},
+    body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.status);
+  return r.json();
+}
+async function get(path) { const r = await fetch(path, {cache:"no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); }
+
+// --- tabs ---
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x===t));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.id===t.dataset.tab));
+  if (t.dataset.tab === "settings") loadSettings();
+  if (t.dataset.tab === "trackers") loadTrackers();
+});
+
+// --- screen control ---
+document.querySelectorAll("[data-go]").forEach(b => b.onclick = async () => {
+  try { await post("/api/remote/cmd", {action:"go", value:b.dataset.go}); toast("Sent → " + b.dataset.go); }
+  catch(e){ toast("Failed: "+e.message, true); }
+});
+$("#reload").onclick = async () => { try { await post("/api/remote/cmd",{action:"reload"}); toast("Reloading screen"); } catch(e){ toast("Failed",true);} };
+$("#reboot").onclick = async () => {
+  if (!confirm("Reboot the Pi now?")) return;
+  try { await post("/api/remote/reboot"); toast("Rebooting…"); } catch(e){ toast("Reboot failed: "+e.message, true); }
+};
+
+// --- settings ---
+let cfg = {};
+async function loadSettings() {
+  try { cfg = await get("/api/admin/config"); } catch(e){ $("#settings-body").innerHTML = `<p class="muted">Failed to load.</p>`; return; }
+  const loc = cfg.location||{}, u = cfg.units||{};
+  const clocks = cfg.world_clocks||[], cds = cfg.countdowns||[];
+  const g = cfg.govee||{}, gi = cfg.govee_indoor||{}, ef = cfg.ecoflow||{}, tr = cfg.trains||{};
+  const opt = (v,sel) => `<option ${v===sel?"selected":""}>${v}</option>`;
+  $("#settings-body").innerHTML = `
+    <div class="card"><h2 style="margin-top:0">Location</h2>
+      <label>Label</label><input id="s-label" value="${esc(loc.label)}">
+      <div class="two"><div><label>Latitude</label><input id="s-lat" value="${esc(loc.lat)}"></div>
+        <div><label>Longitude</label><input id="s-lon" value="${esc(loc.lon)}"></div></div>
+      <label>Timezone</label><input id="s-tz" value="${esc(loc.timezone)}"></div>
+    <div class="card"><h2 style="margin-top:0">Units</h2>
+      <div class="two"><div><label>Temperature</label><select id="s-temp">${opt("celsius",u.temperature)}${opt("fahrenheit",u.temperature)}</select></div>
+        <div><label>Wind</label><select id="s-wind">${["kmh","mph","ms","kn"].map(x=>opt(x,u.wind)).join("")}</select></div></div></div>
+    <div class="card"><h2 style="margin-top:0">World clocks</h2><div id="clock-list"></div>
+      <button class="sm" id="add-clock">+ Add clock</button></div>
+    <div class="card"><h2 style="margin-top:0">Countdowns</h2><div id="cd-list"></div>
+      <button class="sm" id="add-cd">+ Add countdown</button></div>
+    <div class="card"><h2 style="margin-top:0">Sensor / API keys <span class="muted">(blank = keep)</span></h2>
+      <label>Govee API key</label><input id="s-gkey" placeholder="${g.api_key?'•••• (set)':''}">
+      <div class="two"><div><label>Govee SKU</label><input id="s-gsku" value="${esc(g.sku)}"></div>
+        <div><label>Govee device</label><input id="s-gdev" value="${esc(g.device)}"></div></div>
+      <label>Indoor Govee SKU / device</label>
+      <div class="two"><div><input id="s-gisku" value="${esc(gi.sku)}" placeholder="indoor SKU"></div>
+        <div><input id="s-gidev" value="${esc(gi.device)}" placeholder="indoor device"></div></div>
+      <label>EcoFlow access / secret / serial</label>
+      <input id="s-efa" placeholder="${ef.access_key?'•••• (set)':'access key'}">
+      <input id="s-efs" placeholder="${ef.secret_key?'•••• (set)':'secret key'}" style="margin-top:6px">
+      <input id="s-efsn" value="${esc(ef.serial)}" placeholder="serial" style="margin-top:6px">
+      <label>Darwin (trains) token</label><input id="s-darwin" placeholder="${tr.token?'•••• (set)':''}"></div>`;
+
+  const clockList = $("#clock-list");
+  const addClock = (c={}) => { const d=document.createElement("div"); d.className="row"; d.style.marginBottom="6px";
+    d.innerHTML=`<div><input class="c-label" value="${esc(c.label)}" placeholder="Label"></div>
+      <div><input class="c-tz" value="${esc(c.tz)}" placeholder="Area/City"></div>
+      <div class="x"><button class="sm" type="button">✕</button></div>`;
+    d.querySelector("button").onclick=()=>d.remove(); clockList.appendChild(d); };
+  clocks.forEach(addClock); $("#add-clock").onclick=()=>addClock();
+
+  const cdList = $("#cd-list");
+  const addCd = (c={}) => { const d=document.createElement("div"); d.className="row"; d.style.marginBottom="6px";
+    d.innerHTML=`<div style="flex:0 0 56px"><input class="d-emoji" value="${esc(c.emoji)}" placeholder="🏝️"></div>
+      <div><input class="d-label" value="${esc(c.label)}" placeholder="Label"></div>
+      <div><input class="d-date" type="date" value="${esc(c.date)}"></div>
+      <div class="x"><button class="sm" type="button">✕</button></div>`;
+    d.querySelector("button").onclick=()=>d.remove(); cdList.appendChild(d); };
+  cds.forEach(addCd); $("#add-cd").onclick=()=>addCd();
+}
+
+$("#save").onclick = async () => {
+  const val = id => $("#"+id).value.trim();
+  const clocks = [...document.querySelectorAll("#clock-list .row")].map(r => ({
+    label:r.querySelector(".c-label").value.trim(), tz:r.querySelector(".c-tz").value.trim()
+  })).filter(c=>c.label && c.tz);
+  const cds = [...document.querySelectorAll("#cd-list .row")].map(r => ({
+    emoji:r.querySelector(".d-emoji").value.trim()||"⏳", label:r.querySelector(".d-label").value.trim(),
+    date:r.querySelector(".d-date").value.trim()
+  })).filter(c=>c.label && c.date);
+  const patch = {
+    location:{ label:val("s-label"), lat:parseFloat(val("s-lat")), lon:parseFloat(val("s-lon")), timezone:val("s-tz") },
+    units:{ temperature:val("s-temp"), wind:val("s-wind") },
+    world_clocks: clocks, countdowns: cds,
+    govee:{ api_key:val("s-gkey"), sku:val("s-gsku"), device:val("s-gdev") },
+    govee_indoor:{ sku:val("s-gisku"), device:val("s-gidev"), enabled: !!(val("s-gisku") && val("s-gidev")) },
+    ecoflow:{ access_key:val("s-efa"), secret_key:val("s-efs"), serial:val("s-efsn") },
+    trains:{ token:val("s-darwin") },
+  };
+  try { await post("/api/admin/config", patch); toast("Saved — reload the screen to apply");
+  } catch(e){ toast("Save failed: "+e.message, true); }
+};
+
+// --- trackers ---
+async function loadTrackers() {
+  let data; try { data = await get("/api/trackers"); } catch(e){ $("#trackers-body").innerHTML=`<p class="muted">Failed.</p>`; return; }
+  const list = (data.trackers||[]);
+  $("#trackers-body").innerHTML = `<div class="card">` + (list.length ? list.map(t => `
+    <div class="trk"><div><b>${esc(t.label)}</b><div class="muted">${esc(t.status ?? (t.value!=null? (t.unit||"")+t.value : "—"))}</div></div>
+      <div style="display:flex;gap:6px">
+        <button class="sm" data-ref="${esc(t.id)}">Check</button>
+        ${t.alert&&t.alert.active?`<button class="sm" data-ack="${esc(t.id)}">Dismiss</button>`:""}
+      </div></div>`).join("") : `<p class="muted">No trackers.</p>`) + `</div>`;
+  document.querySelectorAll("[data-ref]").forEach(b=>b.onclick=async()=>{ b.textContent="…"; try{await post(`/api/trackers/${b.dataset.ref}/refresh`); toast("Checked"); loadTrackers();}catch(e){toast("Failed",true);} });
+  document.querySelectorAll("[data-ack]").forEach(b=>b.onclick=async()=>{ try{await post(`/api/trackers/${b.dataset.ack}/ack`); loadTrackers();}catch(e){toast("Failed",true);} });
+}
+</script>
+</body>
+</html>

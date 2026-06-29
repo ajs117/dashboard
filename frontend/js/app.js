@@ -84,6 +84,25 @@ export function go(route) {
   location.hash = route;
 }
 
+// Poll the remote-control command channel so a phone/laptop can drive this screen
+// (navigate to an app, reload). Acts only when the sequence number advances.
+function startRemotePoll() {
+  let lastSeq = -1;
+  const poll = async () => {
+    try {
+      const c = await api("/api/remote/cmd");
+      if (lastSeq === -1) { lastSeq = c.seq; return; }   // ignore the command present at boot
+      if (c.seq > lastSeq) {
+        lastSeq = c.seq;
+        if (c.action === "reload") location.reload();
+        else if (c.action === "go" && c.value) go(c.value);
+      }
+    } catch (e) { /* ignore; try again next tick */ }
+  };
+  setInterval(poll, 2000);
+  poll();
+}
+
 async function boot() {
   tap(backBtn(), () => go("home"));
   window.addEventListener("hashchange", () =>
@@ -95,6 +114,7 @@ async function boot() {
     state.config = {};
   }
   navigate(location.hash.replace("#", "") || "home");
+  startRemotePoll();
 }
 
 boot();
