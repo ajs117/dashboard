@@ -110,6 +110,12 @@ govee_indoor:
   device: ""            # device id/MAC
   reports_fahrenheit: true
 
+# --- Parcel tracking (Ship24; auto-detects the courier). Add parcels from the remote. ---
+parcel_api:
+  provider: "ship24"
+  api_key: ""           # free key from ship24.com (Pi-only/gitignored)
+parcels: []             # e.g. - { id: "p1", label: "Boots order", tracking: "AB123456789GB" }
+
 # --- Cache TTLs (seconds) ---
 cache:
   weather: 600

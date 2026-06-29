@@ -59,6 +59,35 @@ _state: dict[str, dict[str, Any]] = {}
 _loaded = False
 
 
+def _sync_parcels() -> None:
+    """Mirror the config `parcels` list into _DEFS as auto status-trackers.
+
+    Parcels are user-managed (added/removed from the remote), so unlike the static
+    holiday/dvla trackers they're rebuilt from config each time we list or poll. Each
+    becomes tracker id 'parcel:<id>', fetched via Ship24 (alerts on status change).
+    """
+    cfg = config.get()
+    key = (cfg.get("parcel_api") or {}).get("api_key")
+    wanted: set[str] = set()
+    for p in (cfg.get("parcels") or []):
+        pid = str(p.get("id") or p.get("tracking") or "").strip()
+        tracking = (p.get("tracking") or "").strip()
+        if not (pid and tracking):
+            continue
+        tid = f"parcel:{pid}"
+        wanted.add(tid)
+
+        async def _fetch(tracking=tracking, key=key):
+            from . import tracker_routines
+            return await tracker_routines.parcel_status(key, tracking)
+
+        _DEFS[tid] = {"label": p.get("label") or tracking, "unit": "", "kind": "auto",
+                      "fetch": _fetch, "note": f"📦 {tracking}"}
+    for tid in [t for t in _DEFS if t.startswith("parcel:") and t not in wanted]:
+        _DEFS.pop(tid, None)
+        _state.pop(tid, None)
+
+
 def register_auto(tid: str, label: str, unit: str,
                   fetch: Callable[[], Awaitable[float | None]], **extra: Any) -> None:
     """Register an auto tracker (used to bolt on the TUI price routine later)."""
@@ -163,6 +192,7 @@ def _public_one(tid: str, d: dict[str, Any]) -> dict[str, Any]:
 async def list_public() -> dict[str, Any]:
     async with _lock:
         _load()
+        _sync_parcels()
         items = [_public_one(tid, d) for tid, d in _DEFS.items()]
     any_alert = any(i["alert"] and i["alert"].get("active") for i in items)
     return {"trackers": items, "alert": any_alert}
@@ -191,6 +221,7 @@ async def ack(tid: str) -> dict[str, Any]:
 
 async def refresh(tid: str) -> dict[str, Any]:
     """Run an auto tracker's fetch routine now and record the result."""
+    _sync_parcels()                 # so a just-added parcel id resolves
     d = _DEFS.get(tid)
     if not d:
         raise KeyError(tid)
@@ -213,6 +244,7 @@ async def refresh(tid: str) -> dict[str, Any]:
 
 async def check_all_auto() -> None:
     """Run every auto tracker once (used by the background scheduler)."""
+    _sync_parcels()
     for tid, d in list(_DEFS.items()):
         if d.get("kind") == "auto" and d.get("fetch"):
             try:

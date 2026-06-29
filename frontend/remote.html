@@ -119,6 +119,7 @@ async function loadSettings() {
   const loc = cfg.location||{}, u = cfg.units||{};
   const clocks = cfg.world_clocks||[], cds = cfg.countdowns||[];
   const g = cfg.govee||{}, gi = cfg.govee_indoor||{}, ef = cfg.ecoflow||{}, tr = cfg.trains||{};
+  const pa = cfg.parcel_api||{}, parcels = cfg.parcels||[];
   const opt = (v,sel) => `<option ${v===sel?"selected":""}>${v}</option>`;
   $("#settings-body").innerHTML = `
     <div class="card"><h2 style="margin-top:0">Location</h2>
@@ -144,7 +145,11 @@ async function loadSettings() {
       <input id="s-efa" placeholder="${ef.access_key?'•••• (set)':'access key'}">
       <input id="s-efs" placeholder="${ef.secret_key?'•••• (set)':'secret key'}" style="margin-top:6px">
       <input id="s-efsn" value="${esc(ef.serial)}" placeholder="serial" style="margin-top:6px">
-      <label>Darwin (trains) token</label><input id="s-darwin" placeholder="${tr.token?'•••• (set)':''}"></div>`;
+      <label>Darwin (trains) token</label><input id="s-darwin" placeholder="${tr.token?'•••• (set)':''}"></div>
+    <div class="card"><h2 style="margin-top:0">Parcels <span class="muted">(Ship24 · courier auto-detected)</span></h2>
+      <label>Ship24 API key</label><input id="s-pkey" placeholder="${pa.api_key?'•••• (set)':'free key from ship24.com'}">
+      <div id="parcel-list" style="margin-top:8px"></div>
+      <button class="sm" id="add-parcel">+ Add parcel</button></div>`;
 
   const clockList = $("#clock-list");
   const addClock = (c={}) => { const d=document.createElement("div"); d.className="row"; d.style.marginBottom="6px";
@@ -162,6 +167,15 @@ async function loadSettings() {
       <div class="x"><button class="sm" type="button">✕</button></div>`;
     d.querySelector("button").onclick=()=>d.remove(); cdList.appendChild(d); };
   cds.forEach(addCd); $("#add-cd").onclick=()=>addCd();
+
+  const pList = $("#parcel-list");
+  const addParcel = (p={}) => { const d=document.createElement("div"); d.className="row"; d.style.marginBottom="6px";
+    d.dataset.id = p.id || ("p"+Date.now()+Math.floor(Math.random()*1000));
+    d.innerHTML=`<div><input class="p-label" value="${esc(p.label)}" placeholder="What is it?"></div>
+      <div><input class="p-track" value="${esc(p.tracking)}" placeholder="Tracking number"></div>
+      <div class="x"><button class="sm" type="button">✕</button></div>`;
+    d.querySelector("button").onclick=()=>d.remove(); pList.appendChild(d); };
+  parcels.forEach(addParcel); $("#add-parcel").onclick=()=>addParcel();
 }
 
 $("#save").onclick = async () => {
@@ -173,14 +187,19 @@ $("#save").onclick = async () => {
     emoji:r.querySelector(".d-emoji").value.trim()||"⏳", label:r.querySelector(".d-label").value.trim(),
     date:r.querySelector(".d-date").value.trim()
   })).filter(c=>c.label && c.date);
+  const parcels = [...document.querySelectorAll("#parcel-list .row")].map(r => ({
+    id:r.dataset.id, label:r.querySelector(".p-label").value.trim(),
+    tracking:r.querySelector(".p-track").value.trim()
+  })).filter(p=>p.tracking);
   const patch = {
     location:{ label:val("s-label"), lat:parseFloat(val("s-lat")), lon:parseFloat(val("s-lon")), timezone:val("s-tz") },
     units:{ temperature:val("s-temp"), wind:val("s-wind") },
-    world_clocks: clocks, countdowns: cds,
+    world_clocks: clocks, countdowns: cds, parcels,
     govee:{ api_key:val("s-gkey"), sku:val("s-gsku"), device:val("s-gdev") },
     govee_indoor:{ sku:val("s-gisku"), device:val("s-gidev"), enabled: !!(val("s-gisku") && val("s-gidev")) },
     ecoflow:{ access_key:val("s-efa"), secret_key:val("s-efs"), serial:val("s-efsn") },
     trains:{ token:val("s-darwin") },
+    parcel_api:{ provider:"ship24", api_key:val("s-pkey") },
   };
   try { await post("/api/admin/config", patch); toast("Saved — reload the screen to apply");
   } catch(e){ toast("Save failed: "+e.message, true); }

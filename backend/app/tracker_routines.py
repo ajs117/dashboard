@@ -122,6 +122,48 @@ def parse_dvla(page_html: str) -> dict[str, Any] | None:
     return {"value": value, "status": summary, "detail": detail}
 
 
+# --- Parcel tracking (Ship24: auto-detects the courier from the tracking number) ---
+_SHIP24 = "https://api.ship24.com/public/v1/trackers/track"
+_MILESTONE = {
+    "pending": ("Pending", 0.0), "info_received": ("Label created", 0.5),
+    "in_transit": ("In transit", 1.0), "out_for_delivery": ("Out for delivery", 2.0),
+    "available_for_pickup": ("Ready for pickup", 2.0), "failed_attempt": ("Failed attempt", -1.0),
+    "exception": ("Exception", -1.0), "delivered": ("Delivered", 3.0),
+}
+
+
+def parse_parcel(js: dict[str, Any]) -> dict[str, Any]:
+    """Pure: turn a Ship24 track response into {value, status, detail}.
+
+    status = the milestone ("In transit", "Out for delivery", "Delivered", …) so a change
+    fires the tracker's change alert; value codes the milestone for the sparkline; detail
+    carries the latest scan's text/location.
+    """
+    trackings = ((js.get("data") or {}).get("trackings")) or []
+    if not trackings:
+        return {"value": None, "status": "No info yet", "detail": ""}
+    tk = trackings[0]
+    milestone = ((tk.get("shipment") or {}).get("statusMilestone")) or "pending"
+    label, value = _MILESTONE.get(milestone, (milestone.replace("_", " ").title(), 0.0))
+    events = tk.get("events") or []
+    ev = events[0] if events else {}
+    detail = (ev.get("status") or ev.get("location") or "")
+    return {"value": value, "status": label, "detail": detail[:70]}
+
+
+async def parcel_status(api_key: str, tracking_number: str) -> dict[str, Any] | None:
+    """Current status of one parcel via Ship24 (courier auto-detected)."""
+    if not (api_key and tracking_number):
+        return None
+    resp = await client().post(
+        _SHIP24,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"trackingNumber": tracking_number},
+    )
+    resp.raise_for_status()
+    return parse_parcel(resp.json())
+
+
 async def dvla_licence() -> dict[str, Any] | None:
     """Fetch the current driving-licence status, or None if unavailable/not configured."""
     d = (config.get().get("dvla_licence") or {})

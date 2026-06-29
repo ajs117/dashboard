@@ -72,3 +72,29 @@ def test_dvla_revoked_is_invalid():
 
 def test_dvla_no_record():
     assert tr.parse_dvla("<p>check your identity</p>") is None
+
+
+# --- Parcel (Ship24) parsing --------------------------------------------------------
+def _ship24(milestone, event_status="At depot"):
+    return {"data": {"trackings": [{
+        "shipment": {"statusMilestone": milestone},
+        "events": [{"status": event_status, "location": "Birmingham"}],
+    }]}}
+
+
+def test_parcel_in_transit():
+    out = tr.parse_parcel(_ship24("in_transit"))
+    assert out["status"] == "In transit"
+    assert out["value"] == 1.0
+    assert out["detail"] == "At depot"
+
+
+def test_parcel_delivered():
+    out = tr.parse_parcel(_ship24("delivered", "Delivered, signed for"))
+    assert out["status"] == "Delivered"
+    assert out["value"] == 3.0
+
+
+def test_parcel_no_trackings():
+    out = tr.parse_parcel({"data": {"trackings": []}})
+    assert out["value"] is None and out["status"] == "No info yet"
