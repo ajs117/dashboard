@@ -278,23 +278,3 @@ html, body {
 .trk-btn { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line);
   border-radius: 10px; padding: 10px 16px; font-size: 15px; font-weight: 600; cursor: pointer; }
 .trk-btn:active { background: var(--line); }
-.trk-btn.update { background: var(--accent); color: #04111f; border-color: var(--accent); }
-
-/* On-screen numeric keypad for manual price entry */
-.keypad-wrap { position: absolute; inset: 0; background: rgba(0,0,0,.55);
-  display: flex; align-items: center; justify-content: center; z-index: 1100; }
-.keypad-wrap[hidden] { display: none; }   /* beat the display:flex so it really hides */
-.keypad { background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
-  padding: 18px; width: 340px; }
-.kp-title { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
-.kp-display { font-size: 32px; font-weight: 800; text-align: right; background: var(--bg);
-  border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; min-height: 54px; }
-.kp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.kp-key { font-size: 24px; font-weight: 700; padding: 16px 0; background: var(--panel-2);
-  border: 1px solid var(--line); border-radius: 12px; color: var(--fg); cursor: pointer; }
-.kp-key:active { background: var(--line); }
-.kp-actions { display: flex; gap: 10px; margin-top: 12px; }
-.kp-actions button { flex: 1; padding: 14px; font-size: 16px; font-weight: 700;
-  border-radius: 12px; border: 1px solid var(--line); cursor: pointer; }
-.kp-cancel { background: var(--panel-2); color: var(--fg); }
-.kp-save { background: var(--accent); color: #04111f; border-color: var(--accent); }
