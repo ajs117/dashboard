@@ -203,6 +203,8 @@ async def parcel_status(api_key: str, tracking_number: str,
         headers={**_WP_HEADERS, "Authorization": f"Bearer {token}"},
         json={"trackingItems": [item]},
     )
+    if resp.status_code == 429 or resp.status_code >= 500:
+        return None        # transient (rate-limited / upstream) -> keep last-good, retry later
     resp.raise_for_status()
     return parse_parcel(resp.json())
 
