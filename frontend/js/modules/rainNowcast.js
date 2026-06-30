@@ -37,14 +37,25 @@ function levelOf(v) {
   return "heavy";
 }
 
-function loadImage(src) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
+// Fetch the tile as a CORS blob and load it via a blob: URL. Blob-URL images are
+// same-origin, so the canvas is never tainted — unlike reusing the map's tile <img>,
+// which the browser may have cached without CORS (then getImageData throws).
+async function loadImage(src) {
+  try {
+    const r = await fetch(src, { mode: "cors" });
+    if (!r.ok) return null;
+    const url = URL.createObjectURL(await r.blob());
+    const img = await new Promise((resolve) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => resolve(null);
+      im.src = url;
+    });
+    URL.revokeObjectURL(url);
+    return img;
+  } catch (e) {
+    return null;
+  }
 }
 
 // Render the RADIUS-window around (gx,gy) global pixels for one frame into a Float32 grid
