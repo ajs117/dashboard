@@ -64,7 +64,7 @@ def _sync_parcels() -> None:
 
     Parcels are user-managed (added/removed from the remote), so unlike the static
     holiday/dvla trackers they're rebuilt from config each time we list or poll. Each
-    becomes tracker id 'parcel:<id>', fetched via Ship24 (alerts on status change).
+    becomes tracker id 'parcel:<id>', fetched via WhereParcel (alerts on status change).
     """
     cfg = config.get()
     pa = cfg.get("parcel_api") or {}

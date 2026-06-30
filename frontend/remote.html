@@ -149,11 +149,16 @@ async function loadSettings() {
     <div class="card"><h2 style="margin-top:0">Holiday price <span class="muted">(re-paste searchId if it freezes)</span></h2>
       <div class="two"><div><label>Search ID</label><input id="s-hsid" value="${esc(ht.search_id)}"></div>
         <div><label>Account ID</label><input id="s-hacc" value="${esc(ht.account_id)}"></div></div></div>
-    <div class="card"><h2 style="margin-top:0">Parcels <span class="muted">(WhereParcel · courier auto-detected)</span></h2>
-      <div class="two"><div><label>API key</label><input id="s-pkey" placeholder="${pa.api_key?'•••• (set)':'whereparcel.com (free)'}"></div>
+    <div class="card"><h2 style="margin-top:0">Parcels <span class="muted">(WhereParcel · carrier required, e.g. gb.royalmail · hk.post)</span></h2>
+      <div class="two"><div><label>API key <span class="muted">(blank = free demo key)</span></label><input id="s-pkey" placeholder="${pa.api_key?'•••• (set)':'leave blank — works without signup'}"></div>
         <div><label>Secret key</label><input id="s-psec" placeholder="${pa.secret_key?'•••• (set)':''}"></div></div>
       <div id="parcel-list" style="margin-top:8px"></div>
-      <button class="sm" id="add-parcel">+ Add parcel</button></div>`;
+      <button class="sm" id="add-parcel">+ Add parcel</button>
+      <datalist id="carriers">
+        <option value="gb.royalmail"><option value="gb.evri"><option value="gb.dhl">
+        <option value="gb.ups"><option value="gb.fedex"><option value="hk.post">
+        <option value="intl.dhl"><option value="intl.fedex"><option value="intl.ups">
+      </datalist></div>`;
 
   const clockList = $("#clock-list");
   const addClock = (c={}) => { const d=document.createElement("div"); d.className="row"; d.style.marginBottom="6px";
@@ -177,6 +182,7 @@ async function loadSettings() {
     d.dataset.id = p.id || ("p"+Date.now()+Math.floor(Math.random()*1000));
     d.innerHTML=`<div><input class="p-label" value="${esc(p.label)}" placeholder="What is it?"></div>
       <div><input class="p-track" value="${esc(p.tracking)}" placeholder="Tracking number"></div>
+      <div style="flex:0 0 120px"><input class="p-carrier" list="carriers" value="${esc(p.carrier)}" placeholder="carrier"></div>
       <div class="x"><button class="sm" type="button">✕</button></div>`;
     d.querySelector("button").onclick=()=>d.remove(); pList.appendChild(d); };
   parcels.forEach(addParcel); $("#add-parcel").onclick=()=>addParcel();
@@ -193,7 +199,8 @@ $("#save").onclick = async () => {
   })).filter(c=>c.label && c.date);
   const parcels = [...document.querySelectorAll("#parcel-list .row")].map(r => ({
     id:r.dataset.id, label:r.querySelector(".p-label").value.trim(),
-    tracking:r.querySelector(".p-track").value.trim()
+    tracking:r.querySelector(".p-track").value.trim(),
+    carrier:r.querySelector(".p-carrier").value.trim()
   })).filter(p=>p.tracking);
   const patch = {
     location:{ label:val("s-label"), lat:parseFloat(val("s-lat")), lon:parseFloat(val("s-lon")), timezone:val("s-tz") },

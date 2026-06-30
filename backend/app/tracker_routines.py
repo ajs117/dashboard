@@ -122,11 +122,27 @@ def parse_dvla(page_html: str) -> dict[str, Any] | None:
     return {"value": value, "status": summary, "detail": detail}
 
 
-# --- Parcel tracking (WhereParcel: 1000 free trackings/month, courier auto-detected) ---
+# --- Parcel tracking (WhereParcel: 1000 free trackings/month) -------------------------
 #   POST https://api.whereparcel.com/v2/track
 #   Authorization: Bearer <api_key>:<secret_key>
-#   body: {"trackingItems": [{"trackingNumber": "...", "carrier": "<optional>"}]}
+#   body: {"trackingItems": [{"trackingNumber": "...", "carrier": "<code>"}]}
+# `carrier` is REQUIRED (verified against the live API — it is NOT auto-detected); use the
+# dotted codes from GET /v2/carriers, e.g. gb.royalmail, gb.evri, hk.post, intl.dhl.
+# Response: {success, results:[{carrier, trackingNumber, status?, error?,
+#   data?:{status, statusText, carrierName, events:[{timestamp,status,statusText,
+#   location,description}]}}]}  (events newest-first; some shapes put status/events flat
+#   on the item rather than under `data`, so we read both).
 _WHEREPARCEL = "https://api.whereparcel.com/v2/track"
+# Public demo credentials WhereParcel ships for the playground — no signup, work for real
+# lookups (rate-limited ~1 req/10s, ample for a home dashboard polling every few hours).
+_WP_DEMO = ("wp_test_public_demo_key_do_not_use_in_production",
+            "sk_test_public_demo_secret_do_not_use_in_production")
+_WP_HEADERS = {  # the demo key is gated to the site's origin
+    "accept": "*/*",
+    "content-type": "application/json",
+    "origin": "https://whereparcel.com",
+    "referer": "https://whereparcel.com/",
+}
 # Normalised milestone -> (label, sparkline value). Keys cover the common status vocab.
 _MILESTONE = {
     "pending": ("Pending", 0.0), "info_received": ("Label created", 0.5),
@@ -139,43 +155,52 @@ _MILESTONE = {
 
 
 def parse_parcel(js: dict[str, Any]) -> dict[str, Any]:
-    """Pure (defensive): turn a parcel-tracking response into {value, status, detail}.
+    """Pure: turn a WhereParcel /v2/track response into {value, status, detail}.
 
     status = the milestone ("In transit"/"Out for delivery"/"Delivered"), so a change fires
-    the tracker's change alert; value codes it for the sparkline; detail = latest scan. Tries
-    several field names so it survives minor response-shape differences (calibrated to the
-    real WhereParcel response once a key is in place).
+    the tracker's change alert; value codes it for the sparkline; detail = the latest scan
+    (or the API's message when a carrier hasn't found/launched the item yet). Reads both
+    response shapes seen live: tracking fields nested under `data`, or flat on the item.
     """
-    items = (js.get("trackingItems") or js.get("trackings") or js.get("data") or [])
-    if isinstance(items, dict):
-        items = items.get("trackings", [items])   # empty trackings -> [] (not the wrapper)
-    if not items:
+    results = js.get("results") or js.get("data") or js.get("trackingItems") or []
+    if isinstance(results, dict):
+        results = results.get("results") or results.get("data") or [results]
+    if not results:
         return {"value": None, "status": "No info yet", "detail": ""}
-    it = items[0]
-    sh = it.get("shipment") or it
-    raw = (sh.get("deliveryStatus") or sh.get("statusMilestone") or sh.get("status")
-           or it.get("statusText") or "pending")
+    it = results[0]
+    d = it.get("data") if isinstance(it.get("data"), dict) else it   # detail nested or flat
+    raw = d.get("status") or it.get("status") or "pending"
+    err = it.get("error") or d.get("error")
+    if str(raw).lower() == "error" or err:
+        msg = (err or {}).get("message") or "Tracking error"
+        return {"value": None, "status": "No info yet", "detail": str(msg)[:90]}
     key = re.sub(r"[\s-]+", "_", str(raw).strip().lower())
     label, value = _MILESTONE.get(key, (str(raw).replace("_", " ").title() or "Pending", 0.0))
-    events = it.get("events") or sh.get("events") or []
+    events = d.get("events") or it.get("events") or []
     ev = events[0] if events else (it.get("latestEvent") or {})
-    detail = (ev.get("description") or ev.get("status") or ev.get("statusText")
-              or ev.get("location") or "")
+    detail = (ev.get("description") or ev.get("statusText") or ev.get("location")
+              or d.get("statusText") or "")
     return {"value": value, "status": label, "detail": str(detail)[:70]}
 
 
 async def parcel_status(api_key: str, tracking_number: str,
                         secret_key: str = "", carrier: str = "") -> dict[str, Any] | None:
-    """Current status of one parcel via WhereParcel (courier auto-detected when omitted)."""
-    if not (api_key and tracking_number):
+    """Current status of one parcel via WhereParcel. carrier is required (dotted code).
+
+    Falls back to WhereParcel's public demo credentials when no key is configured, so the
+    tracker works out of the box (the user found no signup is needed).
+    """
+    if not tracking_number:
         return None
+    if not api_key:
+        api_key, secret_key = _WP_DEMO
     item: dict[str, Any] = {"trackingNumber": tracking_number}
     if carrier:
         item["carrier"] = carrier
     token = f"{api_key}:{secret_key}" if secret_key else api_key
     resp = await client().post(
         _WHEREPARCEL,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={**_WP_HEADERS, "Authorization": f"Bearer {token}"},
         json={"trackingItems": [item]},
     )
     resp.raise_for_status()
