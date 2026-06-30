@@ -41,8 +41,9 @@ export const aircraft = {
       .addTo(map).bindTooltip("You");
     this._map = map;
     setTimeout(() => map.invalidateSize(), 50);
-    // The list mirrors what's actually on screen, so refresh it when the view pans/zooms.
-    map.on("moveend zoomend", () => this._renderList(el, ctx));
+    // The list + auto-follow mirror what's actually on screen, so re-evaluate both when the
+    // view pans/zooms (otherwise the detail panel can show a plane that's off the map).
+    map.on("moveend zoomend", () => { this._renderList(el, ctx); this._refollow(el, ctx); });
 
     const load = async () => {
       try {
@@ -63,8 +64,17 @@ export const aircraft = {
     this._timer = setInterval(load, (ctx.config?.refresh?.aircraft || 20) * 1000);
   },
 
+  // Aircraft currently inside the map viewport (nearest-first, as the backend orders them).
+  // Auto-follow/selection is restricted to these so the side panel always matches the map.
+  _visible(data) {
+    const list = data?.aircraft || [];
+    if (!this._map) return list;
+    const b = this._map.getBounds();
+    return list.filter((a) => a.lat != null && a.lon != null && b.contains([a.lat, a.lon]));
+  },
+
   _pickClosest(data) {
-    const list = data?.aircraft || [];     // backend returns nearest-first
+    const list = this._visible(data);      // only planes you can actually see
     if (!list.length) return null;
     const airborne = list.find((a) => (a.altitude || 0) > 0);
     return (airborne || list[0]).hex;
@@ -76,12 +86,25 @@ export const aircraft = {
   _followTarget(data) {
     const closest = this._pickClosest(data);
     if (!closest) return null;
-    const cur = (data.aircraft || []).find((a) => a.hex === this._selected);
-    if (!cur) return closest;
-    const closestAc = (data.aircraft || []).find((a) => a.hex === closest);
+    const vis = this._visible(data);
+    const cur = vis.find((a) => a.hex === this._selected);
+    if (!cur) return closest;        // selection left the view (or none) -> closest visible
+    const closestAc = vis.find((a) => a.hex === closest);
     const curD = cur.distance_mi ?? Infinity;
     const closeD = closestAc?.distance_mi ?? Infinity;
     return closeD < curD * 0.85 ? closest : this._selected;
+  },
+
+  // Re-evaluate the auto-followed plane after a pan/zoom so the detail panel never shows a
+  // plane that's off the visible map. No-op while a plane is pinned (deliberate selection).
+  _refollow(el, ctx) {
+    if (!this._data || !this._follow) return;
+    const target = this._followTarget(this._data);
+    if (!target) {
+      if (this._selected) { this._selected = null; this._repaintMarkers(); this._renderDetail(el, null); }
+    } else if (target !== this._selected) {
+      this._select(el, ctx, target);
+    }
   },
 
   // ✈ SVG marker; selected/nearest plane is yellow, others light grey.

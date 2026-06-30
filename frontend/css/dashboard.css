@@ -248,12 +248,16 @@ html, body {
 @keyframes cticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
 /* Dot-matrix LED rendering: perforate the big amber glyphs into a dot grid. mask-size is in
-   em so the dot pitch scales with each element's font-size. */
-.bh-station, .bh-clock, .brow .b-time, .b-dest .dst, .b-plat, .b-exp {
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 41%, transparent 47%);
-  mask-image: radial-gradient(circle at 50% 50%, #000 41%, transparent 47%);
-  -webkit-mask-size: 0.135em 0.135em; mask-size: 0.135em 0.135em;
+   em so the dot pitch scales with each element's font-size. Only the large glyphs are
+   dotted — the tiny header labels would be illegible perforated. */
+.bh-station, .bh-clock, .brow:not(.head) .b-time, .b-dest .dst,
+.brow:not(.head) .b-plat, .brow:not(.head) .b-exp {
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 54%, transparent 60%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 54%, transparent 60%);
+  -webkit-mask-size: 0.15em 0.15em; mask-size: 0.15em 0.15em;
   -webkit-mask-position: 0 0; mask-position: 0 0;
+  color: #ffc23a;                                  /* brighter so the dots read clearly */
+  text-shadow: 0 0 6px rgba(255,176,40,.5);
 }
 .b-plat { font-size: 23px; font-weight: 700; text-align: center; }
 .b-exp { font-size: 21px; font-weight: 700; text-align: right; }
@@ -264,7 +268,7 @@ html, body {
 .brow.is-cancelled .b-dest .dst { color: rgba(255,174,38,.4); text-decoration: line-through; }
 
 /* ============ TRACKER (custom watch routines) ============ */
-.tracker { height: 100%; padding: 24px; overflow: auto; position: relative; }
+.tracker { height: 100%; padding: 72px 24px 24px; overflow: auto; position: relative; }
 .trk-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
   gap: 16px; max-width: 980px; margin: 0 auto; align-items: start; }
 .trk-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
