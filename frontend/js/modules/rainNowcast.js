@@ -19,8 +19,6 @@ const SCHEME = "4/1_1";      // same colour scheme the map draws, so tiles are c
 const MAX_FRAMES = 8;        // most recent frames to consider (~80 min of history)
 const HORIZON = 6;           // prediction steps (× frame interval ≈ next hour)
 
-export let lastNowcastDebug = "";   // TEMP diagnostic surfaced in the radar panel foot
-
 const lon2x = (lon) => ((lon + 180) / 360) * 2 ** Z;
 const lat2y = (lat) =>
   ((1 - Math.asinh(Math.tan((lat * Math.PI) / 180)) / Math.PI) / 2) * 2 ** Z;
@@ -121,20 +119,19 @@ const compass16 = (deg) => {
 // Returns null on any shortfall so the caller keeps the server forecast.
 export async function radarNowcast(env, lat, lon) {
   try {
-    if (!env || !env.frames || !env.host) { lastNowcastDebug = "no env"; return null; }
+    if (!env || !env.frames || !env.host) return null;
     const frames = env.frames;
     const pastCount = env.past_count ?? frames.length;
     const past = frames.slice(0, pastCount);            // observed frames only, oldest->newest
-    if (past.length < 2) { lastNowcastDebug = "frames<2"; return null; }
+    if (past.length < 2) return null;
     const use = past.slice(-MAX_FRAMES);
     const gx = lon2x(lon) * TILE, gy = lat2y(lat) * TILE;
     const c = RADIUS;
 
     const fields = [];
     for (const f of use) fields.push(await sampleField(env.host, f.path, gx, gy));
-    const nLoaded = fields.filter(Boolean).length;
     const last = fields[fields.length - 1];
-    if (!last) { lastNowcastDebug = `no last field (loaded ${nLoaded}/${use.length})`; return null; }
+    if (!last) return null;
     // newest valid pair for motion
     let prev = null;
     for (let i = fields.length - 2; i >= 0; i--) if (fields[i]) { prev = fields[i]; break; }
@@ -161,7 +158,6 @@ export async function radarNowcast(env, lat, lon) {
     if (vx || vy) fromCompass = compass16((Math.atan2(-vx, vy) * 180) / Math.PI);
 
     const timeline = future.map((v) => ({ mm: Math.round(v * 100) / 100, prob: null }));
-    lastNowcastDebug = `radar nL=${nLoaded} now=${nowV.toFixed(2)} v=(${vx},${vy})`;
     return {
       raining_now: raining,
       level: raining ? levelOf(nowV) : levelOf(Math.max(...future)),
@@ -174,7 +170,6 @@ export async function radarNowcast(env, lat, lon) {
       source: "radar",
     };
   } catch (e) {
-    lastNowcastDebug = "ERR " + (e && e.message ? e.message : e);
     return null;     // never break the page over a nowcast
   }
 }
