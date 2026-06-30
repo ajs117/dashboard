@@ -1,6 +1,7 @@
 // Radar: dark base map showing the CURRENT frame + rain-near-you prediction.
 /* global L */
 import { esc } from "../util.js";
+import { radarNowcast } from "./rainNowcast.js";
 
 export const radar = {
   _map: null, _layer: null, _refresh: null, _fade: null,
@@ -29,16 +30,26 @@ export const radar = {
     setTimeout(() => map.invalidateSize(), 50);
 
     const load = async () => {
+      let env = null;
       try {
-        const env = await ctx.api("/api/radar");
+        env = await ctx.api("/api/radar");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
         ctx.setStale(env.stale, "radar");
         this._showCurrent(env.data);
       } catch (e) { /* keep last layer */ }
       try {
         const fc = await ctx.api("/api/radar/forecast");
+        // Prefer the real radar sampled at our location (the model misses live rain);
+        // fall back to the server forecast if radar sampling can't produce one.
+        let data = fc.data, stale = fc.stale;
+        const rn = env && env.data ? await radarNowcast(env.data, center[0], center[1]) : null;
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        if (rn) {
+          data = { ...rn, location: (fc.data && fc.data.location) || ctx.config?.location?.label || "" };
+          stale = false;
+        }
         const panel = el.querySelector("#rain-panel");
-        if (panel) this._renderPanel(panel, fc.data, fc.stale);
+        if (panel) this._renderPanel(panel, data, stale);
       } catch (e) {
         const panel = el.querySelector("#rain-panel");
         if (panel) panel.innerHTML = `<span class="muted">Forecast unavailable</span>`;
