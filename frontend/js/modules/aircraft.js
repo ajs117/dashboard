@@ -250,6 +250,8 @@ export const aircraft = {
     if (!ac) {
       sky.innerHTML = "";
       d.innerHTML = `<div class="muted">No aircraft in range</div>`;
+      const ph = el.querySelector("#ac-photo");   // also clear the stale aircraft photo
+      if (ph) { ph.style.backgroundImage = ""; ph.innerHTML = `<span class="muted">No aircraft in range</span>`; }
       return;
     }
     this._renderLook(sky, ac);
