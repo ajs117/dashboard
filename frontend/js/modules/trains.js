@@ -42,14 +42,15 @@ export const trains = {
       .map((m) => `<div class="nrcc">⚠️ ${esc(m)}</div>`).join("");
 
     const rows = services.map((s) => {
-      const calling = (s.calling_points || []).map((c) => esc(c.name)).slice(0, 8).join(" • ");
+      const calling = (s.calling_points || []).map((c) => esc(c.name)).join(" • ");
+      const inner = calling ? "Calling at: " + calling : esc(s.operator || "");
       const exp = s.cancelled ? "Cancelled" : esc(s.etd || "");
       return `
         <div class="brow ${s.cancelled ? "is-cancelled" : ""}">
           <div class="b-time">${esc(s.std || "")}</div>
           <div class="b-dest">
             <div class="dst">${esc(s.destination || "—")}</div>
-            <div class="calling">${calling ? "Calling at: " + calling : esc(s.operator || "")}</div>
+            <div class="calling"><span class="ct">${inner}</span></div>
           </div>
           <div class="b-plat">${s.platform ? esc(s.platform) : "–"}</div>
           <div class="b-exp ${expClass(s.etd, s.cancelled)}">${exp}</div>
@@ -80,6 +81,23 @@ export const trains = {
     const clk = el.querySelector("#bh-clock");
     if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
       { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
+    this._setupTickers(el);
+  },
+
+  // Scroll the "calling at …" line like a real platform board, but only when it actually
+  // overflows. Duplicate the text so the translateX(-50%) loop is seamless.
+  _setupTickers(el) {
+    el.querySelectorAll(".calling").forEach((c) => {
+      const ct = c.querySelector(".ct");
+      if (!ct) return;
+      if (ct.scrollWidth > c.clientWidth + 4) {
+        const txt = ct.innerHTML;
+        ct.innerHTML = `${txt}<span class="ct-gap"></span>${txt}`;
+        c.classList.add("scroll");
+        ct.style.animationDuration = `${Math.max(10, (ct.scrollWidth / 2) / 38)}s`; // ~38px/s
+      }
+    });
   },
 
   unmount() { clearInterval(this._timer); },

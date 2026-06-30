@@ -70,6 +70,9 @@ export const tracker = {
       list.innerHTML = `<div class="muted" style="padding:24px">No trackers configured.</div>`;
       return;
     }
+    // Order: parcels first, DVLA licence last, everything else (holiday) between.
+    const rank = (t) => (t.id.startsWith("parcel:") ? 0 : t.id === "dvla" ? 2 : 1);
+    trackers.sort((a, b) => rank(a) - rank(b));
     list.innerHTML = trackers.map((t) => {
       const al = t.alert && t.alert.active ? t.alert : null;
       const isStatus = t.status != null;              // DVLA-style status tracker
