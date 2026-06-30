@@ -1,7 +1,7 @@
 // Radar: dark base map showing the CURRENT frame + rain-near-you prediction.
 /* global L */
 import { esc } from "../util.js";
-import { radarNowcast } from "./rainNowcast.js";
+import { radarNowcast, lastNowcastDebug } from "./rainNowcast.js";
 
 export const radar = {
   _map: null, _layer: null, _refresh: null, _fade: null,
@@ -49,7 +49,8 @@ export const radar = {
           stale = false;
         }
         const panel = el.querySelector("#rain-panel");
-        if (panel) this._renderPanel(panel, data, stale);
+        const dbg = { ...data, location: `${data.location || ""} ⟪${lastNowcastDebug}⟫` };
+        if (panel) this._renderPanel(panel, dbg, stale);
       } catch (e) {
         const panel = el.querySelector("#rain-panel");
         if (panel) panel.innerHTML = `<span class="muted">Forecast unavailable</span>`;
