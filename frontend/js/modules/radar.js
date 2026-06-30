@@ -70,7 +70,11 @@ export const radar = {
       : frames.length - 1;
     const f = frames[idx];
     const url = `${data.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`;
-    const layer = L.tileLayer(url, { opacity: 0.8, maxNativeZoom: 7, maxZoom: 18, zIndex: 5 });
+    // crossOrigin so the browser caches a CORS-clean response — rainNowcast samples these
+    // same tiles in a canvas, which taints (and throws on read) if they were cached non-CORS.
+    const layer = L.tileLayer(url, {
+      opacity: 0.8, maxNativeZoom: 7, maxZoom: 18, zIndex: 5, crossOrigin: "anonymous",
+    });
     layer.addTo(this._map);
     if (this._layer) {
       const old = this._layer;
