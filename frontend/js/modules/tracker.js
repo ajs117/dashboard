@@ -111,19 +111,14 @@ export const tracker = {
           ${banner}
           <div class="trk-foot">
             <span class="muted">updated ${ago(t.updated_at)}${isStatus ? "" : ` · baseline ${money(t.baseline, t.unit)}`}</span>
-            <button class="trk-btn check" data-id="${esc(t.id)}">Check now</button>
           </div>
         </div>`;
     }).join("");
 
+    // Trackers auto-poll on a schedule — no manual buttons. The only action is dismissing
+    // an alert banner.
     list.querySelectorAll(".trk-btn.ack").forEach((b) =>
       ctx.tap(b, async () => { await post(`/api/trackers/${b.dataset.id}/ack`); this._refresh(el, ctx); }));
-    list.querySelectorAll(".trk-btn.check").forEach((b) =>
-      ctx.tap(b, async () => {
-        b.textContent = "Checking…";
-        try { await post(`/api/trackers/${b.dataset.id}/refresh`); } catch (e) { /* ignore */ }
-        this._refresh(el, ctx);
-      }));
   },
 
   async _refresh(el, ctx) {

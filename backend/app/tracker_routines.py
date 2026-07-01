@@ -162,6 +162,12 @@ def parse_parcel(js: dict[str, Any]) -> dict[str, Any]:
     (or the API's message when a carrier hasn't found/launched the item yet). Reads both
     response shapes seen live: tracking fields nested under `data`, or flat on the item.
     """
+    if js.get("success") is False:            # account-level failure (not a per-item result)
+        err = js.get("error") or {}
+        if str(err.get("code", "")).startswith("AUTH"):
+            return {"value": None, "status": "API key needed",
+                    "detail": "Add a free WhereParcel API key in settings"}
+        return {"value": None, "status": "No info yet", "detail": str(err.get("message") or "")[:90]}
     results = js.get("results") or js.get("data") or js.get("trackingItems") or []
     if isinstance(results, dict):
         results = results.get("results") or results.get("data") or [results]
