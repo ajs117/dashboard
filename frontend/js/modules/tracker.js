@@ -1,6 +1,7 @@
-// Tracker: custom "watch this" routines. First one is the TUI holiday price.
-// All trackers are auto-polled (the holiday searchId is refreshed in config), so there's
-// no manual price entry — each card just offers a "Check now" to force an immediate poll.
+// Tracker: custom "watch this" routines — TUI holiday price, DVLA licence, and parcels.
+// All auto-poll, so there are no manual buttons (only dismissing an alert). Parcels come
+// from the user's Parcel.app account and share ONE card that cycles through them, rather
+// than a card each.
 import { esc } from "../util.js";
 
 async function post(path, body) {
@@ -39,8 +40,11 @@ function sparkline(history) {
     <path d="${d}" fill="none" stroke="#4ea3ff" stroke-width="2"/></svg>`;
 }
 
+// Parcel status -> colour: delivered green, a problem red, in-transit neutral.
+const parcelCls = (v) => (v >= 3 ? "ok" : v < 0 ? "bad" : "");
+
 export const tracker = {
-  _timer: null,
+  _timer: null, _parcelTimer: null, _parcels: [], _parcelIdx: 0, _el: null, _ctx: null,
 
   async mount(el, ctx) {
     el.innerHTML = `<div class="tracker"><div class="trk-list" id="trk-list">
@@ -62,62 +66,116 @@ export const tracker = {
     this._timer = setInterval(load, 60000);
   },
 
+  // Holiday (numeric) / DVLA (status) card.
+  _cardHtml(t) {
+    const al = t.alert && t.alert.active ? t.alert : null;
+    const isStatus = t.status != null;
+    let valueCell, body, banner;
+    if (isStatus) {
+      valueCell = `<div class="trk-statuswrap">
+          <div class="trk-status ${t.value === 0 ? "bad" : "ok"}">${esc(t.status)}</div>
+          ${t.detail ? `<div class="trk-detail muted">${esc(t.detail)}</div>` : ""}</div>`;
+      body = "";
+      banner = al ? `<div class="trk-banner change">
+          Status changed → ${esc(al.to)}
+          <button class="trk-btn ack" data-id="${esc(t.id)}">Dismiss</button></div>` : "";
+    } else {
+      const up = (t.change ?? 0) > 0, down = (t.change ?? 0) < 0;
+      const chCls = up ? "up" : down ? "down" : "";
+      const chTxt = t.change == null || t.change === 0 ? "no change since baseline"
+        : `${up ? "▲" : "▼"} ${money(Math.abs(t.change), t.unit)} vs baseline`;
+      valueCell = `<div class="trk-value">${money(t.value, t.unit)}
+          <div class="trk-change ${chCls}">${chTxt}</div></div>`;
+      body = sparkline(t.history);
+      banner = al ? `<div class="trk-banner ${al.direction}">
+          Price went ${al.direction === "up" ? "UP" : "DOWN"}
+          ${money(Math.abs(al.delta), t.unit)} (now ${money(al.to, t.unit)})
+          <button class="trk-btn ack" data-id="${esc(t.id)}">Dismiss</button></div>` : "";
+    }
+    return `
+      <div class="trk-card ${al ? "trk-alerting" : ""}" data-id="${esc(t.id)}">
+        <div class="trk-top">
+          <div>
+            <div class="trk-label">${esc(t.label)}</div>
+            <div class="trk-note">${esc(t.note || "")}</div>
+          </div>
+          ${isStatus ? "" : valueCell}
+        </div>
+        ${isStatus ? valueCell : body}
+        ${banner}
+        <div class="trk-foot">
+          <span class="muted">updated ${ago(t.updated_at)}${isStatus ? "" : ` · baseline ${money(t.baseline, t.unit)}`}</span>
+        </div>
+      </div>`;
+  },
+
   _render(el, ctx, data) {
+    this._el = el; this._ctx = ctx;
     const list = el.querySelector("#trk-list");
     if (!list) return;
     const trackers = (data && data.trackers) || [];
     if (!trackers.length) {
+      clearInterval(this._parcelTimer);
       list.innerHTML = `<div class="muted" style="padding:24px">No trackers configured.</div>`;
       return;
     }
-    // Order: parcels first, DVLA licence last, everything else (holiday) between.
-    const rank = (t) => (t.id.startsWith("parcel:") ? 0 : t.id === "dvla" ? 2 : 1);
-    trackers.sort((a, b) => rank(a) - rank(b));
-    list.innerHTML = trackers.map((t) => {
-      const al = t.alert && t.alert.active ? t.alert : null;
-      const isStatus = t.status != null;              // DVLA-style status tracker
-      let valueCell, body, banner;
-      if (isStatus) {
-        valueCell = `<div class="trk-statuswrap">
-            <div class="trk-status ${t.value === 0 ? "bad" : "ok"}">${esc(t.status)}</div>
-            ${t.detail ? `<div class="trk-detail muted">${esc(t.detail)}</div>` : ""}</div>`;
-        body = "";
-        banner = al ? `<div class="trk-banner change">
-            Status changed → ${esc(al.to)}
-            <button class="trk-btn ack" data-id="${esc(t.id)}">Dismiss</button></div>` : "";
-      } else {
-        const up = (t.change ?? 0) > 0, down = (t.change ?? 0) < 0;
-        const chCls = up ? "up" : down ? "down" : "";
-        const chTxt = t.change == null || t.change === 0 ? "no change since baseline"
-          : `${up ? "▲" : "▼"} ${money(Math.abs(t.change), t.unit)} vs baseline`;
-        valueCell = `<div class="trk-value">${money(t.value, t.unit)}
-            <div class="trk-change ${chCls}">${chTxt}</div></div>`;
-        body = sparkline(t.history);
-        banner = al ? `<div class="trk-banner ${al.direction}">
-            Price went ${al.direction === "up" ? "UP" : "DOWN"}
-            ${money(Math.abs(al.delta), t.unit)} (now ${money(al.to, t.unit)})
-            <button class="trk-btn ack" data-id="${esc(t.id)}">Dismiss</button></div>` : "";
-      }
-      return `
-        <div class="trk-card ${al ? "trk-alerting" : ""}" data-id="${esc(t.id)}">
-          <div class="trk-top">
-            <div>
-              <div class="trk-label">${esc(t.label)}</div>
-              <div class="trk-note">${esc(t.note || "")}</div>
-            </div>
-            ${isStatus ? "" : valueCell}
-          </div>
-          ${isStatus ? valueCell : body}
-          ${banner}
-          <div class="trk-foot">
-            <span class="muted">updated ${ago(t.updated_at)}${isStatus ? "" : ` · baseline ${money(t.baseline, t.unit)}`}</span>
-          </div>
-        </div>`;
-    }).join("");
+    const parcels = trackers.filter((t) => t.id.startsWith("parcel:"));
+    const others = trackers.filter((t) => !t.id.startsWith("parcel:"))
+      .sort((a, b) => (a.id === "dvla" ? 1 : 0) - (b.id === "dvla" ? 1 : 0));   // DVLA last
+    this._parcels = parcels;
+    if (this._parcelIdx >= parcels.length) this._parcelIdx = 0;
 
-    // Trackers auto-poll on a schedule — no manual buttons. The only action is dismissing
-    // an alert banner.
-    list.querySelectorAll(".trk-btn.ack").forEach((b) =>
+    // Parcels first (one cycling card), then holiday, then DVLA.
+    list.innerHTML = (parcels.length ? `<div class="trk-card" id="parcel-card"></div>` : "")
+      + others.map((t) => this._cardHtml(t)).join("");
+
+    clearInterval(this._parcelTimer);
+    if (parcels.length) {
+      this._renderParcel();
+      if (parcels.length > 1) {
+        this._parcelTimer = setInterval(() => {
+          this._parcelIdx = (this._parcelIdx + 1) % this._parcels.length;
+          this._renderParcel();
+        }, 5000);
+      }
+    }
+    this._bindAck(list);
+  },
+
+  // The single cycling parcel card, showing the current delivery in full.
+  _renderParcel() {
+    const el = this._el;
+    const card = el && el.querySelector("#parcel-card");
+    if (!card || !this._parcels.length) return;
+    const n = this._parcels.length, i = this._parcelIdx % n;
+    const p = this._parcels[i];
+    const al = p.alert && p.alert.active ? p.alert : null;
+    const dots = n > 1
+      ? `<div class="parcel-dots">${this._parcels.map((_, k) =>
+          `<i class="${k === i ? "on" : ""}"></i>`).join("")}</div>` : "";
+    card.className = `trk-card${al ? " trk-alerting" : ""}`;
+    card.innerHTML = `
+      <div class="trk-top">
+        <div>
+          <div class="trk-label">📦 ${esc(p.label)}</div>
+          <div class="trk-note">${esc(p.note || "")}</div>
+        </div>
+        ${n > 1 ? `<div class="parcel-count">${i + 1}/${n}</div>` : ""}
+      </div>
+      <div class="trk-statuswrap">
+        <div class="trk-status ${parcelCls(p.value)}">${esc(p.status || "—")}</div>
+        ${p.detail ? `<div class="trk-detail muted">${esc(p.detail)}</div>` : ""}
+      </div>
+      ${al ? `<div class="trk-banner change">Update → ${esc(al.to)}
+          <button class="trk-btn ack" data-id="${esc(p.id)}">Dismiss</button></div>` : ""}
+      ${dots}
+      <div class="trk-foot"><span class="muted">updated ${ago(p.updated_at)}</span></div>`;
+    this._bindAck(card);
+  },
+
+  _bindAck(root) {
+    const ctx = this._ctx, el = this._el;
+    root.querySelectorAll(".trk-btn.ack").forEach((b) =>
       ctx.tap(b, async () => { await post(`/api/trackers/${b.dataset.id}/ack`); this._refresh(el, ctx); }));
   },
 
@@ -129,5 +187,5 @@ export const tracker = {
     } catch (e) { /* keep current */ }
   },
 
-  unmount() { clearInterval(this._timer); },
+  unmount() { clearInterval(this._timer); clearInterval(this._parcelTimer); },
 };

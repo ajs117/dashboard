@@ -89,7 +89,7 @@ def test_delivery_in_transit():
     assert out["tracking"] == "EA366042905HK"
     assert out["label"] == "29 Jun, Hongkong Post"
     assert out["note"] == "📦 Hongkong Post · EA366042905HK"
-    assert out["detail"] == "Handed over to carrier · HONG KONG"
+    assert out["detail"] == "Handed over to carrier · HONG KONG · 30-06-2026"
 
 
 def test_delivery_out_for_delivery_and_delivered():

@@ -1,5 +1,6 @@
 // Home: clock, weather, news+facts panel, world-clock carousel, stocks ticker, app carousel.
 import { esc } from "../util.js";
+import { radarNowcast } from "./rainNowcast.js";
 
 const WMO_EMOJI = {
   // NB: avoid Miscellaneous-Symbols emoji (☀️ ☁️ ❄️ ⛈️) — their Unicode default is
@@ -79,7 +80,7 @@ export const home = {
   _feed: [], _feedIdx: 0, _feedTimer: null, _newsTimer: null, _factsTimer: null,
   _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
   _air: null, _airTimer: null, _wx: null, _wxPage: 0, _homeTimer: null, _sec: 0,
-  _cdIdx: 0, _cdDay: null,
+  _cdIdx: 0, _cdDay: null, _appTimer: null, _parcelSubs: [], _parcelSubIdx: 0,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -115,6 +116,7 @@ export const home = {
             ${APPS.map((a) => `
               <button class="app-tile" data-route="${a.route}">
                 <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
+                <span class="tile-sub" data-route="${a.route}"></span>
                 <span class="tile-badge" hidden>!</span>
               </button>`).join("")}
           </div>
@@ -168,6 +170,12 @@ export const home = {
         this._wxPage = (this._wxPage + 1) % 3;
         renderWxCycle();
       }
+      // Cycle one parcel summary at a time on the Tracker tile (every 5s).
+      if (this._sec % 5 === 0 && this._parcelSubs.length > 1) {
+        this._parcelSubIdx = (this._parcelSubIdx + 1) % this._parcelSubs.length;
+        const s = el.querySelector('.tile-sub[data-route="tracker"]');
+        if (s) s.textContent = this._parcelSubs[this._parcelSubIdx];
+      }
       this._renderCarousel(el);
       // Countdown tile: render on first tick + at midnight (day change); cycle if several.
       const cds = cfg.countdowns || [];
@@ -214,18 +222,37 @@ export const home = {
     this._newsTimer = setInterval(loadNews, 900000);    // 15 min
     this._factsTimer = setInterval(loadFacts, 3600000); // 1 h
 
-    // --- Tracker alert badge on the Tracker tile ---
+    // --- App-tile live summaries: parcels (cycling), trains, aircraft, rain ---
+    const setSub = (route, text) => {
+      const s = el.querySelector(`.tile-sub[data-route="${route}"]`);
+      if (s) s.textContent = text || "";
+    };
     const loadTrackers = async () => {
       try {
         const data = await ctx.api("/api/trackers");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
         const tile = el.querySelector('.app-tile[data-route="tracker"] .tile-badge');
         if (tile) tile.hidden = !(data && data.alert);
+        this._parcelSubs = parcelSubs((data && data.trackers) || []);   // cycled in tick()
+        if (this._parcelSubIdx >= this._parcelSubs.length) this._parcelSubIdx = 0;
+        setSub("tracker", this._parcelSubs[this._parcelSubIdx] || "No parcels");
       } catch (e) { /* ignore */ }
     };
-    await loadTrackers();
+    const loadAppInfo = async () => {
+      try { const d = await ctx.api("/api/trains"); setSub("trains", trainsSub(d.data)); } catch (e) { /* ignore */ }
+      try { const d = await ctx.api("/api/aircraft"); setSub("aircraft", aircraftSub(d.data)); } catch (e) { /* ignore */ }
+      try {
+        const env = await ctx.api("/api/radar");            // real radar sampled at our point
+        let fc = null;
+        try { fc = await radarNowcast(env.data, cfg.location?.lat, cfg.location?.lon); } catch (e) { /* fall back */ }
+        if (!fc) { try { fc = (await ctx.api("/api/radar/forecast")).data; } catch (e) { /* ignore */ } }
+        setSub("radar", radarSub(fc));
+      } catch (e) { /* ignore */ }
+    };
+    await Promise.all([loadTrackers(), loadAppInfo()]);
     if (ctx.isCurrent && !ctx.isCurrent()) return;
     this._trkTimer = setInterval(loadTrackers, 60000);
+    this._appTimer = setInterval(loadAppInfo, 120000);
 
     // Govee sensor = the ACTUAL measured temp at your location; overrides the headline
     // temperature (Open-Meteo is only an estimate), tagged "live". Its humidity + dew show
@@ -404,12 +431,45 @@ export const home = {
     clearInterval(this._newsTimer);
     clearInterval(this._factsTimer);
     clearInterval(this._trkTimer);
+    clearInterval(this._appTimer);
     clearInterval(this._indoorTimer);
     clearInterval(this._airTimer);
     clearInterval(this._homeTimer);
     cancelAnimationFrame(this._tkRAF);
   },
 };
+
+// --- App-tile summary builders (one concise line under each app label) ---------------
+function parcelSubs(trackers) {
+  return (trackers || []).filter((t) => t.id && t.id.startsWith("parcel:")).map((p) => {
+    const lbl = (p.label || "").replace(/^\d+\s+\w+,\s*/, "").slice(0, 18);  // drop leading "29 Jun, "
+    return `${p.status}${lbl ? " · " + lbl : ""}`;
+  });
+}
+function trainsSub(d) {
+  const svc = (d && d.services) || [];
+  if (!svc.length) return "No departures";
+  const cancelled = svc.filter((s) => s.cancelled).length;
+  const late = svc.filter((s) => !s.cancelled && s.etd && s.etd.toLowerCase() !== "on time").length;
+  if (cancelled) return `⚠ ${cancelled} cancelled`;
+  if (late) return `${late} delayed`;
+  return "All on time";
+}
+function aircraftSub(d) {
+  const a = ((d && d.aircraft) || [])[0];        // backend returns nearest-first
+  if (!a) return "None nearby";
+  const cs = (a.callsign || a.hex || "?").trim();
+  return a.distance_mi != null ? `${cs} · ${a.distance_mi} mi` : cs;
+}
+function radarSub(fc) {
+  if (!fc) return "";
+  if (fc.raining_now) {
+    const lvl = fc.level && fc.level !== "none" ? " " + fc.level : "";
+    return `Raining${lvl}` + (fc.minutes_until_stop != null ? ` · ~${fc.minutes_until_stop}m` : "");
+  }
+  if (fc.status === "starting" && fc.minutes_until_start != null) return `Rain in ~${fc.minutes_until_start}m`;
+  return "Dry";
+}
 
 // Severity -> colour class, shared by the air pills (module scope so wxCycleHtml can use it).
 const LVL = {

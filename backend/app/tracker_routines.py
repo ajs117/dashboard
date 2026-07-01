@@ -160,17 +160,22 @@ def parse_delivery(d: dict[str, Any]) -> dict[str, Any]:
     label, value = _PARCEL_STATUS.get(code, ("In transit", 1.0))
     raw_carrier = str(d.get("carrier_code") or "").strip()
     carrier = _PARCEL_CARRIERS.get(raw_carrier.lower(), raw_carrier.upper() or "Parcel")
+    # detail = the latest scan (the useful bit): what happened, where, when.
     events = d.get("events") or []
     ev = events[0] if events else {}
-    detail = str(ev.get("event") or "").strip()
-    loc = str(ev.get("location") or "").strip()
-    if detail and loc:
-        detail = f"{detail} · {loc}"
+    detail = " · ".join(p for p in (str(ev.get("event") or "").strip(),
+                                    str(ev.get("location") or "").strip(),
+                                    str(ev.get("date") or "").strip()) if p)
+    # note carries carrier + tracking + expected-delivery date when the carrier gives one.
+    note = f"📦 {carrier}" + (f" · {tn}" if tn else "")
+    exp = str(d.get("date_expected") or "").strip()
+    if exp:
+        note += f" · due {exp}"
     return {
         "tracking": tn,
         "label": (str(d.get("description") or "").strip() or tn or "Parcel")[:48],
-        "note": f"📦 {carrier}" + (f" · {tn}" if tn else ""),
-        "value": value, "status": label, "detail": detail[:70],
+        "note": note,
+        "value": value, "status": label, "detail": detail[:120],
     }
 
 
