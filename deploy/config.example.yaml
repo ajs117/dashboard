@@ -110,16 +110,14 @@ govee_indoor:
   device: ""            # device id/MAC
   reports_fahrenheit: true
 
-# --- Parcel tracking (WhereParcel). Add parcels from the remote. ---
-# Leave api_key/secret_key BLANK to use WhereParcel's public demo key (no signup; rate-
-# limited ~1 req/10s, fine for a home dashboard). Or get your own free key (1000/month).
-# `carrier` is REQUIRED on each parcel (it is NOT auto-detected) — use the dotted code from
-# https://api.whereparcel.com/v2/carriers, e.g. gb.royalmail, gb.evri, hk.post, intl.dhl.
+# --- Parcel tracking (Parcel.app) ---
+# Deliveries are managed in the Parcel app; the dashboard just READS your active/recent
+# ones and shows a card per delivery. Add/remove parcels in the app (web.parcelapp.net),
+# not here. Generate an API key at web.parcelapp.net -> API and paste it below.
+# The endpoint is cached upstream and rate-limited to 20 requests/hour (we cache 15 min).
 parcel_api:
-  provider: "whereparcel"
-  api_key: ""           # blank = public demo key; or whereparcel.com -> API keys (gitignored)
-  secret_key: ""
-parcels: []             # e.g. - { id: "p1", label: "AliExpress", tracking: "RR123456789HK", carrier: "hk.post" }
+  provider: "parcelapp"
+  api_key: ""           # api-key header value from web.parcelapp.net (Pi-only/gitignored)
 
 # --- Cache TTLs (seconds) ---
 cache:

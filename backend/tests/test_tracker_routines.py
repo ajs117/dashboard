@@ -74,51 +74,41 @@ def test_dvla_no_record():
     assert tr.parse_dvla("<p>check your identity</p>") is None
 
 
-# --- Parcel (WhereParcel) parsing ---------------------------------------------------
-# Shapes captured live from api.whereparcel.com/v2/track (success body from the playground
-# example; error body from a not-yet-launched carrier). Tracking detail nests under `data`;
-# events are newest-first.
-def _wp_success(status, desc="Out for delivery", carrier="hk.post"):
-    return {"success": True, "results": [{
-        "carrier": carrier, "trackingNumber": "EA366042905HK", "success": True,
-        "data": {"carrier": carrier, "carrierName": "Hongkong Post", "status": status,
-                 "statusText": "delivered", "events": [
-                     {"timestamp": "2026-07-01T10:00:00+08:00", "status": status,
-                      "location": "Hong Kong", "description": desc}]},
-    }]}
+# --- Parcel (Parcel.app) parsing ----------------------------------------------------
+# Shapes captured live from api.parcel.app/external/deliveries/. status_code -> milestone;
+# events newest-first; carrier_code mapped to a friendly name.
+def _delivery(status_code, carrier="hk", desc="29 Jun, Hongkong Post",
+              tn="EA366042905HK", event="Handed over to carrier", loc="HONG KONG"):
+    return {"carrier_code": carrier, "description": desc, "status_code": status_code,
+            "tracking_number": tn, "events": [{"event": event, "date": "30-06-2026", "location": loc}]}
 
 
-def test_parcel_in_transit():
-    out = tr.parse_parcel(_wp_success("in_transit", "Departed sorting centre"))
-    assert out["status"] == "In transit"
-    assert out["value"] == 1.0
-    assert out["detail"] == "Departed sorting centre"
+def test_delivery_in_transit():
+    out = tr.parse_delivery(_delivery(2))
+    assert out["status"] == "In transit" and out["value"] == 1.0
+    assert out["tracking"] == "EA366042905HK"
+    assert out["label"] == "29 Jun, Hongkong Post"
+    assert out["note"] == "📦 Hongkong Post · EA366042905HK"
+    assert out["detail"] == "Handed over to carrier · HONG KONG"
 
 
-def test_parcel_delivered():
-    out = tr.parse_parcel(_wp_success("delivered", "Delivered, signed for"))
-    assert out["status"] == "Delivered"
-    assert out["value"] == 3.0
+def test_delivery_out_for_delivery_and_delivered():
+    assert tr.parse_delivery(_delivery(4))["status"] == "Out for delivery"
+    d = tr.parse_delivery(_delivery(0, carrier="amzluk", desc="Tango cans"))
+    assert d["status"] == "Delivered" and d["value"] == 3.0
+    assert d["note"].startswith("📦 Amazon")
 
 
-def test_parcel_status_flat_on_item():
-    # Some responses carry status/events directly on the item (not under `data`).
-    js = {"results": [{"carrier": "gb.royalmail", "trackingNumber": "AB1GB",
-                       "status": "out_for_delivery",
-                       "events": [{"description": "Out for delivery", "location": "BHX"}]}]}
-    out = tr.parse_parcel(js)
-    assert out["status"] == "Out for delivery" and out["value"] == 2.0
+def test_delivery_needs_attention():
+    out = tr.parse_delivery(_delivery(7))
+    assert out["status"] == "Needs attention" and out["value"] == -1.0
 
 
-def test_parcel_carrier_error_surfaces_message():
-    js = {"success": True, "results": [{
-        "carrier": "hk.post", "trackingNumber": "EA366042905HK", "status": "error",
-        "error": {"code": "INTERNAL_ERROR",
-                  "message": "Carrier 'Hongkong Post' is scheduled to launch at 2026-06-30 14:00 (KST)."}}]}
-    out = tr.parse_parcel(js)
-    assert out["value"] is None and out["status"] == "No info yet"
-    assert "scheduled to launch" in out["detail"]
-
-
-def test_parcel_no_results():
-    assert tr.parse_parcel({"success": True, "results": []})["status"] == "No info yet"
+def test_delivery_unknown_carrier_falls_back_and_no_events():
+    d = {"carrier_code": "wombat", "description": "", "status_code": 8,
+         "tracking_number": "XY1", "events": []}
+    out = tr.parse_delivery(d)
+    assert out["status"] == "Label created"
+    assert out["note"] == "📦 WOMBAT · XY1"      # unknown code -> upper-cased
+    assert out["label"] == "XY1"                 # no description -> tracking number
+    assert out["detail"] == ""
