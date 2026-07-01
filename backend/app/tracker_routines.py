@@ -211,8 +211,11 @@ async def parcel_status(api_key: str, tracking_number: str,
     )
     if resp.status_code == 429 or resp.status_code >= 500:
         return None        # transient (rate-limited / upstream) -> keep last-good, retry later
-    resp.raise_for_status()
-    return parse_parcel(resp.json())
+    try:
+        js = resp.json()   # 4xx (e.g. 401 bad key) still carries a useful error body
+    except Exception:      # noqa: BLE001 - non-JSON -> nothing to show
+        return None
+    return parse_parcel(js)
 
 
 async def dvla_licence() -> dict[str, Any] | None:
