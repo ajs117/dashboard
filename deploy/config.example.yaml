@@ -92,13 +92,15 @@ dvla_licence:
   national_insurance: ""    # National Insurance number
   postcode: ""              # postcode on the licence
 
-# --- EcoFlow solar output (official developer API; ~3-7 day approval for keys) ---
-# Apply at developer-eu.ecoflow.com, generate an Access Key + Secret Key.
+# --- EcoFlow solar output (official developer API) ---
+# Apply at developer-eu.ecoflow.com, generate an Access Key + Secret Key. Newer devices
+# (e.g. the STREAM microinverter) only push live data over EcoFlow's MQTT broker, so the
+# backend runs a small MQTT subscriber; solar output = sum of the PV-input watts.
 ecoflow:
   enabled: false
   access_key: ""
   secret_key: ""
-  serial: ""            # device serial number (SN) to read
+  serial: ""            # device serial (SN); leave blank to auto-pick the first device
   pv_field: ""          # optional: override which quota field holds solar input watts
 
 # --- Second Govee sensor, placed indoors (the first `govee` is the outdoor/local one) ---

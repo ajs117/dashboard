@@ -1,109 +1,175 @@
-"""EcoFlow solar-output provider (official IoT Open developer API).
+"""EcoFlow solar-output provider (official IoT Open developer API, MQTT).
 
-Every request is HMAC-SHA256 signed: sort the request params as key=value joined by '&',
-append accessKey/nonce/timestamp, sign that string with the secret key, and send the four
-values as headers. We read the device's "quota" (its full live state) and pull the solar
-input watts out of it.
+The STREAM microinverter doesn't serve live data over the REST quota endpoints (they return
+an empty body) — it pushes it over EcoFlow's MQTT broker instead. So we:
 
-  GET https://api-e.ecoflow.com/iot-open/sign/device/quota/all?sn=<serial>
-  GET https://api-e.ecoflow.com/iot-open/sign/device/list        (to auto-find the serial)
+  1. GET /iot-open/sign/certification            -> MQTT account/password + broker
+  2. connect to mqtts://mqtt-e.ecoflow.com:8883, subscribe to /open/<account>/<sn>/quota
+  3. accumulate the (incremental) quota messages into a running state dict
 
-Needs ecoflow.access_key + ecoflow.secret_key in config; the serial is optional (we take
-the first device on the account when it's blank). Returns {enabled:false} until configured.
+Every REST call is HMAC-SHA256 signed, but only over the cert params (accessKey/nonce/
+timestamp) — the query `sn` is NOT part of the signed string (verified against the live
+API; signing it gives "signature is wrong"). Solar output = sum of the PV-input watts
+(`powGetPv`, `powGetPv2`, …). Runs a background MQTT thread; `fetch` just reads the state.
+
+Needs ecoflow.access_key + ecoflow.secret_key in config; serial is auto-discovered when
+blank. Returns {enabled:false} until configured.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import random
+import ssl
+import threading
 import time
+import urllib.request
 from typing import Any
-
-from . import client
 
 _BASE = "https://api-e.ecoflow.com"
 
+# The PV-input fields the STREAM pushes (sum = total solar generation watts).
+_PV_KEYS = ("powGetPv", "powGetPv1", "powGetPv2", "powGetPv3", "powGetPv4")
 
-def _flatten(obj: Any, prefix: str = "") -> dict[str, Any]:
-    """Flatten nested params to EcoFlow's `a.b` / `a[0]` dotted form for signing."""
-    out: dict[str, Any] = {}
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            out.update(_flatten(v, f"{prefix}.{k}" if prefix else str(k)))
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            out.update(_flatten(v, f"{prefix}[{i}]"))
-    elif prefix:
-        out[prefix] = obj
-    return out
+# Shared state written by the MQTT thread, read by fetch(). Dict writes are atomic under the
+# GIL; the lock just keeps the snapshot copy consistent.
+_state: dict[str, Any] = {}
+_meta: dict[str, Any] = {"connected": False, "last_msg": 0.0, "error": None, "sn": None}
+_lock = threading.Lock()
+_worker: threading.Thread | None = None
+_stop = threading.Event()
 
 
-def _sign_headers(access_key: str, secret_key: str,
-                  params: dict[str, Any] | None = None) -> dict[str, str]:
-    """Build the accessKey/nonce/timestamp/sign headers for a request."""
+def _sign_headers(access_key: str, secret_key: str) -> dict[str, str]:
     nonce = str(random.randint(100000, 999999))
     ts = str(int(time.time() * 1000))
-    flat = _flatten(params or {})
-    parts = [f"{k}={flat[k]}" for k in sorted(flat)]
-    parts += [f"accessKey={access_key}", f"nonce={nonce}", f"timestamp={ts}"]
-    base = "&".join(parts)
+    base = f"accessKey={access_key}&nonce={nonce}&timestamp={ts}"
     sign = hmac.new(secret_key.encode(), base.encode(), hashlib.sha256).hexdigest()
     return {"accessKey": access_key, "nonce": nonce, "timestamp": ts, "sign": sign,
             "Content-Type": "application/json;charset=UTF-8"}
 
 
-def parse_solar(quota: dict[str, Any], pv_field: str | None = None) -> dict[str, Any]:
-    """Pure: pull solar input watts (and today's kWh if present) from a device quota.
+def _signed_get(path: str, access_key: str, secret_key: str,
+                query: str = "") -> dict[str, Any]:
+    url = f"{_BASE}{path}" + (f"?{query}" if query else "")
+    req = urllib.request.Request(url, headers=_sign_headers(access_key, secret_key))
+    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 - fixed EcoFlow host
+        return json.loads(resp.read())
 
-    The exact field depends on the device model (e.g. `inv.inputWatts`, MPPT/PV fields),
-    so `pv_field` lets config point at the right one; otherwise we try common keys.
-    """
-    def num(key: str):
-        v = quota.get(key)
-        return float(v) if isinstance(v, (int, float)) else None
 
-    candidates = [pv_field] if pv_field else [
-        "mppt.pv1InputWatts", "mppt.pvInWatts", "inv.inputWatts", "pd.wattsInSum",
-        "20_1.pv1InputWatts", "pv.inputWatts",
-    ]
-    watts = next((num(k) for k in candidates if k and num(k) is not None), None)
-    if watts is not None and abs(watts) > 100000:      # some models report deciwatts
-        watts /= 10.0
-    for tk in ("pd.kwhDay", "pd.chgSunPower", "mppt.dayEnergy"):
-        today = num(tk)
-        if today is not None:
-            break
+def parse_solar(state: dict[str, Any], pv_field: str | None = None) -> dict[str, Any]:
+    """Pure: total solar watts (sum of PV inputs) + grid power from an accumulated quota."""
+    if pv_field:
+        v = state.get(pv_field)
+        watts = float(v) if isinstance(v, (int, float)) else None
     else:
-        today = None
-    return {"enabled": True, "watts_now": watts, "kwh_today": today}
+        vals = [float(state[k]) for k in _PV_KEYS if isinstance(state.get(k), (int, float))]
+        watts = round(sum(vals), 1) if vals else None
+    grid = state.get("gridConnectionPower")
+    grid = round(float(grid), 1) if isinstance(grid, (int, float)) else None
+    return {"enabled": True, "watts_now": watts, "kwh_today": None, "grid_w": grid}
 
 
-async def _get(path: str, access_key: str, secret_key: str,
-               params: dict[str, Any] | None = None) -> dict[str, Any]:
-    headers = _sign_headers(access_key, secret_key, params)
-    resp = await client().get(f"{_BASE}{path}", params=params or None, headers=headers)
-    resp.raise_for_status()
-    return resp.json()
+def _build_client(cert: dict[str, Any], sn: str):
+    import paho.mqtt.client as mqtt
+
+    acct = cert["certificateAccount"]
+    topic = f"/open/{acct}/{sn}/quota"
+    c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
+                    client_id=f"dash_{random.randint(10000, 99999)}", protocol=mqtt.MQTTv311)
+    c.username_pw_set(acct, cert["certificatePassword"])
+    c.tls_set(cert_reqs=ssl.CERT_REQUIRED)          # validate the broker's TLS cert
+    c.reconnect_delay_set(min_delay=2, max_delay=60)
+
+    def on_connect(cl, userdata, flags, reason_code, properties=None):
+        ok = not getattr(reason_code, "is_failure", bool(reason_code))
+        _meta["connected"] = ok
+        _meta["error"] = None if ok else f"connect: {reason_code}"
+        cl.subscribe(topic)
+
+    def on_disconnect(cl, userdata, flags, reason_code, properties=None):
+        _meta["connected"] = False
+
+    def on_message(cl, userdata, msg):
+        try:
+            data = json.loads(msg.payload.decode())
+            if isinstance(data, dict):
+                with _lock:
+                    _state.update(data)
+                _meta["last_msg"] = time.time()
+        except Exception:  # noqa: BLE001 - ignore a malformed frame
+            pass
+
+    c.on_connect = on_connect
+    c.on_disconnect = on_disconnect
+    c.on_message = on_message
+    return c
+
+
+def _worker_loop(access_key: str, secret_key: str, serial: str) -> None:
+    """Daemon thread: keep an MQTT subscription alive, refreshing the cert periodically.
+
+    paho's own loop handles short network blips (auto-reconnect); we rebuild the connection
+    with a fresh certificate every ~45 min in case the MQTT password rotates.
+    """
+    while not _stop.is_set():
+        client = None
+        try:
+            sn = serial or _meta.get("sn") or ""
+            if not sn:
+                js = _signed_get("/iot-open/sign/device/list", access_key, secret_key)
+                devs = js.get("data") or []
+                sn = (devs[0].get("sn") if devs else "") or ""
+            if not sn:
+                _meta["error"] = "no EcoFlow device on the account"
+                _stop.wait(120)
+                continue
+            _meta["sn"] = sn
+            cert = _signed_get("/iot-open/sign/certification", access_key, secret_key)["data"]
+            client = _build_client(cert, sn)
+            client.connect(cert["url"], int(cert["port"]), keepalive=30)
+            client.loop_start()
+            _stop.wait(45 * 60)                     # hold this connection, then refresh cert
+        except Exception as ex:  # noqa: BLE001 - never let the thread die
+            _meta["error"] = str(ex)[:120]
+            _stop.wait(30)
+        finally:
+            if client is not None:
+                try:
+                    client.loop_stop()
+                    client.disconnect()
+                except Exception:  # noqa: BLE001
+                    pass
+
+
+def start_background(cfg: dict[str, Any]) -> None:
+    """Spawn the MQTT worker once, if EcoFlow is configured. Idempotent."""
+    global _worker
+    e = cfg.get("ecoflow") or {}
+    if not (e.get("enabled") and e.get("access_key") and e.get("secret_key")):
+        return
+    if _worker and _worker.is_alive():
+        return
+    _stop.clear()
+    _worker = threading.Thread(target=_worker_loop, daemon=True,
+                               args=(e["access_key"], e["secret_key"], (e.get("serial") or "").strip()))
+    _worker.start()
+
+
+def stop() -> None:
+    _stop.set()
 
 
 async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
     e = (cfg.get("ecoflow") or {})
-    ak, sk = e.get("access_key"), e.get("secret_key")
-    if not (e.get("enabled") and ak and sk):
+    if not (e.get("enabled") and e.get("access_key") and e.get("secret_key")):
         return {"enabled": False}
-    try:
-        serial = (e.get("serial") or "").strip()
-        if not serial:                                  # discover: first device on the account
-            js = await _get("/iot-open/sign/device/list", ak, sk)
-            devs = js.get("data") or []
-            serial = (devs[0].get("sn") if devs else "") or ""
-            if not serial:
-                return {"enabled": True, "watts_now": None, "kwh_today": None,
-                        "error": "no EcoFlow device found on the account"}
-        js = await _get("/iot-open/sign/device/quota/all", ak, sk, {"sn": serial})
-        if js.get("code") not in (0, "0", None):
-            return {"enabled": True, "watts_now": None, "kwh_today": None,
-                    "error": f"EcoFlow {js.get('code')}: {js.get('message')}"}
-        return parse_solar(js.get("data") or {}, e.get("pv_field") or None)
-    except Exception as ex:  # noqa: BLE001 - never break the Solar tile
-        return {"enabled": True, "watts_now": None, "kwh_today": None, "error": str(ex)[:80]}
+    start_background(cfg)                            # lazy-start the MQTT thread if needed
+    with _lock:
+        st = dict(_state)
+    out = parse_solar(st, e.get("pv_field") or None)
+    out["connected"] = bool(_meta.get("connected"))
+    if not st and _meta.get("error"):
+        out["error"] = _meta["error"]
+    return out

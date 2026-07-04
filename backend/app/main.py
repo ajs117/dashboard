@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from . import config, trackers
-from .providers import aclose
+from .providers import aclose, ecoflow
 from .routers import api, config_api, remote_api, trackers_api
 
 _FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -52,11 +52,13 @@ async def _tracker_scheduler() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.load()
+    ecoflow.start_background(config.get())     # EcoFlow solar over MQTT (no-op if unconfigured)
     task = asyncio.create_task(_tracker_scheduler())
     yield
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
+    ecoflow.stop()
     await aclose()
 
 
