@@ -130,7 +130,7 @@ cache:
   trains: 30
   stocks: 300
   news: 900             # BBC UK+World headlines
-  facts: 3600           # random trivia (Useless Facts API)
+  facts: 3600           # 'Did you know' trivia (Wikipedia featured/dyk, daily set)
   indoor: 60            # Govee thermo-hygrometer poll
   air: 1800             # air quality / UV / pollen (Open-Meteo)
   solar: 60             # EcoFlow solar output
