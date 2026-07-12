@@ -20,35 +20,6 @@ const APPS = [
   { route: "tracker", ico: "📈", label: "Tracker" },
 ];
 
-// Bundled trivia (offline-friendly; rotated alongside live news headlines).
-const FACTS = [
-  "Honey never spoils — edible pots have been found in 3,000-year-old tombs.",
-  "Octopuses have three hearts and blue, copper-based blood.",
-  "A day on Venus is longer than its year.",
-  "Bananas are berries, but strawberries aren't.",
-  "The Eiffel Tower can grow over 15 cm taller in summer heat.",
-  "Wombats produce cube-shaped droppings.",
-  "Sharks predate trees by about 50 million years.",
-  "A bolt of lightning is roughly five times hotter than the Sun's surface.",
-  "Scotland's national animal is the unicorn.",
-  "There are more possible chess games than atoms in the observable universe.",
-  "Hot water can freeze faster than cold water (the Mpemba effect).",
-  "A group of flamingos is called a flamboyance.",
-  "The shortest war in history lasted about 38 minutes.",
-  "Humans share roughly 60% of their DNA with bananas.",
-  "Sea otters hold hands while sleeping so they don't drift apart.",
-  "The Great Wall of China isn't visible from space with the naked eye.",
-  "Cows have best friends and get stressed when separated.",
-  "Venus is the only planet that spins clockwise.",
-  "A teaspoon of neutron star would weigh about a billion tonnes.",
-  "Pineapples take about two years to grow.",
-  "The dot over a lowercase 'i' or 'j' is called a tittle.",
-  "Sloths can hold their breath longer than dolphins can.",
-  "Norway once knighted a penguin.",
-  "An octopus can taste with its arms.",
-  "The inventor of the frisbee was turned into a frisbee after he died.",
-];
-
 const fmt = (date, opts, tz) =>
   new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: tz }).format(date);
 const fmtClock = (iso) => (iso ? iso.slice(11, 16) : "—");
@@ -192,9 +163,9 @@ export const home = {
     tick();
     this._timer = setInterval(tick, 1000);   // drives clock + both staggered carousels
 
-    // --- News + facts feed (BBC UK+World mix + facts API; bundled facts = offline fallback) ---
+    // --- News + facts feed: ~80% BBC headlines, ~20% Wikipedia "on this day" (fresh daily) ---
     this._news = [];
-    this._facts = [...FACTS].sort(() => Math.random() - 0.5);  // fallback until the API responds
+    this._facts = [];
     this._rebuildFeed();
     this._renderFeed(el);
     this._feedTimer = setInterval(() => {
@@ -213,14 +184,14 @@ export const home = {
       try {
         const env = await ctx.api("/api/facts");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
-        const f = (env.data && env.data.facts) || [];
-        if (f.length) { this._facts = f; this._rebuildFeed(); }  // else keep bundled fallback
-      } catch (e) { /* keep bundled fallback */ }
+        this._facts = (env.data && env.data.facts) || [];
+        this._rebuildFeed();
+      } catch (e) { /* keep current facts */ }
     };
     await Promise.all([loadNews(), loadFacts()]);
     if (ctx.isCurrent && !ctx.isCurrent()) return;
-    this._newsTimer = setInterval(loadNews, 900000);    // 15 min
-    this._factsTimer = setInterval(loadFacts, 3600000); // 1 h
+    this._newsTimer = setInterval(loadNews, 900000);      // 15 min
+    this._factsTimer = setInterval(loadFacts, 6 * 3600000); // 6 h (the set only changes daily)
 
     // --- App-tile live summaries: parcels (cycling), trains, aircraft, rain ---
     const setSub = (route, text) => {
@@ -362,16 +333,16 @@ export const home = {
   },
 
   _rebuildFeed() {
-    // Interleave news, fact, news, fact … so headlines lead but facts still appear.
+    // ~80% news, ~20% facts: one fact after every 4 headlines (cycling the day's fact set).
     const news = (this._news || []).map((t) => ({ kind: "news", text: t }));
     const facts = (this._facts || []).map((t) => ({ kind: "fact", text: t }));
     const merged = [];
-    const n = Math.max(news.length, facts.length);
-    for (let i = 0; i < n; i++) {
-      if (i < news.length) merged.push(news[i]);
-      if (i < facts.length) merged.push(facts[i]);
+    let fi = 0;
+    for (let i = 0; i < news.length; i++) {
+      merged.push(news[i]);
+      if ((i + 1) % 4 === 0 && facts.length) merged.push(facts[fi++ % facts.length]);
     }
-    this._feed = merged.length ? merged : facts;
+    this._feed = merged.length ? merged : facts;   // no news yet -> just show facts
     if (this._feedIdx >= this._feed.length) this._feedIdx = 0;
   },
 
@@ -381,7 +352,7 @@ export const home = {
     const item = this._feed[this._feedIdx % this._feed.length];
     const isNews = item.kind === "news";
     box.innerHTML = `
-      <div class="news-tag ${isNews ? "news" : "fact"}">${isNews ? "📰 BBC News" : "💡 Did you know"}</div>
+      <div class="news-tag ${isNews ? "news" : "fact"}">${isNews ? "📰 BBC News" : "📅 On this day"}</div>
       <div class="news-text">${esc(item.text)}</div>`;
   },
 
