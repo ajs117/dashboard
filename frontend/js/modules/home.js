@@ -545,8 +545,10 @@ function renderWeather(el, w) {
         <div class="wx-sub">Feels ${t(c.apparent)}</div>
       </div>
     </div>
-    <div class="wx-cycle" id="wx-cycle"></div>
-    <div class="wx-dots" id="wx-dots"><i></i><i></i><i></i><i></i></div>`;
+    <div class="wx-body">
+      <div class="wx-cycle" id="wx-cycle"></div>
+      <div class="wx-dots" id="wx-dots"><i></i><i></i><i></i><i></i></div>
+    </div>`;
 }
 
 // The 5-day forecast page: Today + the next 4 days, each with its max/min.

@@ -107,8 +107,10 @@ html, body {
 .wx-live.offline { color: var(--muted); font-weight: 600; }          /* offline ≠ good (green) */
 .wx-live:empty { display: none; }
 /* Cycling weather detail row: 4 pages (stats / sun-moon / air / 5-day forecast) rotate in
-   one row that flex-fills the card, so nothing is permanently taking space. */
-.wx-cycle { display: flex; gap: 8px; margin: 10px 0 4px; flex: 1; }
+   one row. The wx-body wrapper flex-fills the card and vertically centres the current page
+   (at its natural height) so the pills don't stretch into big empty boxes. */
+.wx-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.wx-cycle { display: flex; gap: 8px; margin: 6px 0 8px; }
 .wx-cycle .wx-day { animation: wxfade .35s ease; }
 .wx-cycle .item { flex: 1; min-width: 0; min-height: 50px; background: var(--panel-2);
                   border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column;
