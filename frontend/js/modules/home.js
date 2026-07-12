@@ -167,7 +167,7 @@ export const home = {
         this._carIdx = (this._carIdx + 1) % Math.max(1, this._clocks.length);
       }
       if (this._sec % 10 === 5 && this._wx) {
-        this._wxPage = (this._wxPage + 1) % 4;   // stats / sun-moon / air / 5-day forecast
+        this._wxPage = (this._wxPage + 1) % 2;   // details (all 3 rows) <-> 5-day forecast
         renderWxCycle();
       }
       // Cycle one parcel summary at a time on the Tracker tile (every 5s).
@@ -274,12 +274,16 @@ export const home = {
       }
     };
 
-    // The weather detail row cycles through 3 pages (stats / sun-moon / air); this rebuilds
-    // the visible page from the stored weather + air + sensor data and lights the dot.
+    // The weather card cycles between two views: page 0 shows all three detail rows at once
+    // (stats / sun-moon / air), page 1 shows the 5-day forecast — both fill the card.
     const renderWxCycle = () => {
-      const box = el.querySelector("#wx-cycle");
-      if (!box || !this._wx) return;
-      box.innerHTML = wxCycleHtml(this._wxPage, this._wx, this._air, this._sensor);
+      const stage = el.querySelector("#wx-stage");
+      if (!stage || !this._wx) return;
+      stage.innerHTML = this._wxPage === 1
+        ? `<div class="wx-cycle wx-fc">${forecastPage(this._wx)}</div>`
+        : `<div class="wx-cycle">${wxStatsPills(this._wx, this._sensor)}</div>`
+          + `<div class="wx-cycle">${wxAstroPills(this._wx)}</div>`
+          + `<div class="wx-cycle">${wxAirPills(this._air)}</div>`;
       el.querySelectorAll("#wx-dots i").forEach((d, i) => d.classList.toggle("on", i === this._wxPage));
     };
 
@@ -479,39 +483,22 @@ const LVL = {
 };
 const lvlClass = (band) => LVL[band] || "";
 
-// The weather card's detail rows are collapsed into one row that cycles through 3 pages
-// (stats / sun-moon / air), like the world clock. This builds one page's three pills.
-// The Govee live reading (sensor) overrides humidity + dew on the stats page.
-function wxCycleHtml(page, w, air, sensor) {
+// The weather card's detail view shows all three pill rows at once (stats / sun-moon / air),
+// and the card cycles between that and the 5-day forecast. Each pill is a centred
+// label-over-value. The Govee live reading (sensor) overrides humidity + dew on the stats row.
+const _wxPill = (label, value, title = "") =>
+  `<div class="item"${title ? ` title="${esc(title)}"` : ""}>`
+  + `<div class="ck">${label}</div><div class="cv">${value}</div></div>`;
+const _wxBand = (b) => {
+  const SHORT = { "Moderate": "Mod", "Very poor": "V.poor", "Extremely poor": "E.poor",
+    "Very high": "V.high", "Extreme": "Extr" };
+  return b ? ` <span class="cb ${lvlClass(b)}">${esc(SHORT[b] || b)}</span>` : "";
+};
+
+function wxStatsPills(w, sensor) {
   const c = (w && w.current) || {};
   const unit = w?.units?.temperature || "°";
   const useF = unit.includes("F");
-  // Every pill is the same shape — a centred label over a centred value — so the row reads
-  // consistently as the pages cycle (no jumping). `value` may contain a coloured band span.
-  const pill = (label, value, title = "") =>
-    `<div class="item"${title ? ` title="${esc(title)}"` : ""}>`
-    + `<div class="ck">${label}</div><div class="cv">${value}</div></div>`;
-  const band = (b) => {
-    const SHORT = { "Moderate": "Mod", "Very poor": "V.poor", "Extremely poor": "E.poor",
-      "Very high": "V.high", "Extreme": "Extr" };
-    return b ? ` <span class="cb ${lvlClass(b)}">${esc(SHORT[b] || b)}</span>` : "";
-  };
-  if (page === 3) return forecastPage(w);             // 5-day forecast (Today + next 4)
-  if (page === 1) {                                   // sun / sunset / moon
-    const moon = w?.moon || {};
-    const moonIco = MOON_EMOJI[moon.index] ?? "🌙";
-    return pill("🌅 Sunrise", fmtClock(w?.sun?.sunrise))
-      + pill("🌇 Sunset", fmtClock(w?.sun?.sunset))
-      + pill(`${moonIco} Moon`, `${Math.round((moon.illumination || 0) * 100)}%`, moon.name || "");
-  }
-  if (page === 2) {                                   // air quality / UV / pollen
-    const a = air || {};
-    const v = (x) => (x == null || x === "" ? "—" : esc(String(x)));
-    return pill("💨 Air", `${v(a.aqi?.value)}${band(a.aqi?.band)}`)
-      + pill("🔆 UV", `${v(a.uv?.value)}${band(a.uv?.band)}`)
-      + pill("🌿 Pollen", `${v(a.pollen?.type)}${band(a.pollen?.band)}`);
-  }
-  // page 0: dew point / humidity / wind — with the Govee live override.
   const live = sensor && sensor.enabled;
   const humid = live && sensor.humidity != null ? sensor.humidity + "%"
     : (c.humidity != null ? Math.round(c.humidity) + "%" : "—");
@@ -522,8 +509,24 @@ function wxCycleHtml(page, w, air, sensor) {
   const spd = c.wind_speed != null ? Math.round(c.wind_speed) : "—";
   const wind = (c.wind_gust != null ? `${spd}/${Math.round(c.wind_gust)}` : `${spd}`)
     + ` ${esc(c.wind_compass || "")}`;
-  return pill("Dew point", dew) + pill("Humidity", humid)
-    + pill(`Wind ${esc(w?.units?.wind || "")}`, wind);
+  return _wxPill("Dew point", dew) + _wxPill("Humidity", humid)
+    + _wxPill(`Wind ${esc(w?.units?.wind || "")}`, wind);
+}
+
+function wxAstroPills(w) {
+  const moon = w?.moon || {};
+  const moonIco = MOON_EMOJI[moon.index] ?? "🌙";
+  return _wxPill("🌅 Sunrise", fmtClock(w?.sun?.sunrise))
+    + _wxPill("🌇 Sunset", fmtClock(w?.sun?.sunset))
+    + _wxPill(`${moonIco} Moon`, `${Math.round((moon.illumination || 0) * 100)}%`, moon.name || "");
+}
+
+function wxAirPills(air) {
+  const a = air || {};
+  const v = (x) => (x == null || x === "" ? "—" : esc(String(x)));
+  return _wxPill("💨 Air", `${v(a.aqi?.value)}${_wxBand(a.aqi?.band)}`)
+    + _wxPill("🔆 UV", `${v(a.uv?.value)}${_wxBand(a.uv?.band)}`)
+    + _wxPill("🌿 Pollen", `${v(a.pollen?.type)}${_wxBand(a.pollen?.band)}`);
 }
 
 function renderWeather(el, w) {
@@ -546,8 +549,8 @@ function renderWeather(el, w) {
       </div>
     </div>
     <div class="wx-body">
-      <div class="wx-cycle" id="wx-cycle"></div>
-      <div class="wx-dots" id="wx-dots"><i></i><i></i><i></i><i></i></div>
+      <div id="wx-stage"></div>
+      <div class="wx-dots" id="wx-dots"><i></i><i></i></div>
     </div>`;
 }
 

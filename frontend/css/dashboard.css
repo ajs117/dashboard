@@ -106,11 +106,13 @@ html, body {
 .wx-live { color: var(--good); font-size: 13px; font-weight: 700; }   /* live Govee reading */
 .wx-live.offline { color: var(--muted); font-weight: 600; }          /* offline ≠ good (green) */
 .wx-live:empty { display: none; }
-/* Cycling weather detail row: 4 pages (stats / sun-moon / air / 5-day forecast) rotate in
-   one row. The wx-body wrapper flex-fills the card and vertically centres the current page
-   (at its natural height) so the pills don't stretch into big empty boxes. */
-.wx-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
-.wx-cycle { display: flex; gap: 8px; margin: 6px 0 8px; }
+/* Weather card cycles between two views that both fill the card: the detail view (all three
+   pill rows stacked: stats / sun-moon / air) and the 5-day forecast. */
+.wx-body { flex: 1; display: flex; flex-direction: column; }
+#wx-stage { flex: 1; display: flex; flex-direction: column; justify-content: center;
+            gap: 8px; min-height: 0; }
+.wx-cycle { display: flex; gap: 8px; }
+.wx-cycle.wx-fc { flex: 1; }            /* the single forecast row fills the stage */
 .wx-cycle .wx-day { animation: wxfade .35s ease; }
 .wx-cycle .item { flex: 1; min-width: 0; min-height: 50px; background: var(--panel-2);
                   border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column;
