@@ -246,9 +246,14 @@ async def refresh(tid: str) -> dict[str, Any]:
         return _public_one(tid, d)
 
 
-async def check_all_auto() -> None:
-    """Run every auto tracker once (used by the background scheduler)."""
+async def refresh_parcels() -> None:
+    """Refresh just the Parcel.app deliveries (scheduled hourly, separate from holiday/DVLA)."""
     await _sync_parcels()
+
+
+async def check_all_auto() -> None:
+    """Refresh the coded auto trackers (holiday / DVLA) — the slow, daily ones. Parcels are
+    handled separately by refresh_parcels (hourly) + on every page view."""
     for tid, d in list(_DEFS.items()):
         if d.get("kind") == "auto" and d.get("fetch"):
             try:

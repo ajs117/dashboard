@@ -36,14 +36,11 @@ class NoCacheStaticFiles(StaticFiles):
         return resp
 
 
-async def _tracker_scheduler() -> None:
-    """Poll the auto trackers (e.g. the holiday price) on a slow interval so alerts
-    fire even when nobody has the tracker page open. Holiday prices move slowly, so
-    the default is every few hours; tunable via config `trackers.interval_seconds`."""
-    interval = float((config.get().get("trackers") or {}).get("interval_seconds", 3600))
+async def _poll_loop(interval: float, fn) -> None:
+    """Run `fn` now and then every `interval` seconds, surviving any single failure."""
     while True:
         try:
-            await trackers.check_all_auto()
+            await fn()
         except Exception:  # noqa: BLE001 - a bad poll must never kill the loop
             pass
         await asyncio.sleep(max(300.0, interval))
@@ -53,11 +50,21 @@ async def _tracker_scheduler() -> None:
 async def lifespan(app: FastAPI):
     config.load()
     ecoflow.start_background(config.get())     # EcoFlow solar over MQTT (no-op if unconfigured)
-    task = asyncio.create_task(_tracker_scheduler())
+    tr = config.get().get("trackers") or {}
+    # Holiday/DVLA move slowly -> daily; parcels -> hourly (so alerts fire even when the
+    # tracker page isn't open; the page view also refreshes them off the 15-min cache).
+    tasks = [
+        asyncio.create_task(_poll_loop(float(tr.get("interval_seconds", 86400)),
+                                       trackers.check_all_auto)),
+        asyncio.create_task(_poll_loop(float(tr.get("parcel_interval_seconds", 3600)),
+                                       trackers.refresh_parcels)),
+    ]
     yield
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+    for t in tasks:
+        t.cancel()
+    for t in tasks:
+        with contextlib.suppress(asyncio.CancelledError):
+            await t
     ecoflow.stop()
     await aclose()
 
