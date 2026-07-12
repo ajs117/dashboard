@@ -70,7 +70,7 @@ govee:
 
 # --- Custom trackers (the "watch this thing" app) ---
 trackers:
-  interval_seconds: 10800   # how often auto trackers re-poll (default 3h)
+  interval_seconds: 3600    # how often auto trackers (holiday/DVLA) re-poll (default 1h)
 
 # TUI holiday price, read from Holiday Hypermarket (TUI-owned, same prices, no bot-wall).
 # Capture the search_id once: open the Holiday Hypermarket hotel page, run your exact

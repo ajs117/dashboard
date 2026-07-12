@@ -96,7 +96,8 @@ html, body {
 
 /* Weather */
 .weather-card { grid-column: 2; grid-row: 1 / span 3; background: var(--panel);
-                border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
+                border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px;
+                display: flex; flex-direction: column; }
 .wx-now { display: flex; align-items: center; gap: 14px; }
 .wx-temp { font-size: 56px; font-weight: 700; line-height: 1; }
 .wx-text { font-size: 17px; margin-top: 4px; }
@@ -105,9 +106,10 @@ html, body {
 .wx-live { color: var(--good); font-size: 13px; font-weight: 700; }   /* live Govee reading */
 .wx-live.offline { color: var(--muted); font-weight: 600; }          /* offline ≠ good (green) */
 .wx-live:empty { display: none; }
-/* Cycling weather detail row: 3 pages (stats / sun-moon / air) rotate in one row.
-   Each pill is a centred label-over-value so the row stays consistent across pages. */
-.wx-cycle { display: flex; gap: 8px; margin: 10px 0 4px; }
+/* Cycling weather detail row: 4 pages (stats / sun-moon / air / 5-day forecast) rotate in
+   one row that flex-fills the card, so nothing is permanently taking space. */
+.wx-cycle { display: flex; gap: 8px; margin: 10px 0 4px; flex: 1; }
+.wx-cycle .wx-day { animation: wxfade .35s ease; }
 .wx-cycle .item { flex: 1; min-width: 0; min-height: 50px; background: var(--panel-2);
                   border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column;
                   align-items: center; justify-content: center; gap: 2px; text-align: center;

@@ -196,7 +196,9 @@ async def fetch_deliveries(api_key: str) -> list[dict[str, Any]] | None:
     if c["data"] is not None and c["key"] == api_key and (now - c["at"]) < _DELIVERIES_TTL:
         return c["data"]
     try:
-        resp = await client().get(f"{_PARCEL_URL}?filter_mode=recent",
+        # "active" = only parcels still on their way (drops the pile of old delivered ones
+        # that "recent" returns) — a glanceable "what am I waiting for" view.
+        resp = await client().get(f"{_PARCEL_URL}?filter_mode=active",
                                   headers={"api-key": api_key})
         resp.raise_for_status()
         js = resp.json()

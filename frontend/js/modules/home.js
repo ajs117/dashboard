@@ -167,7 +167,7 @@ export const home = {
         this._carIdx = (this._carIdx + 1) % Math.max(1, this._clocks.length);
       }
       if (this._sec % 10 === 5 && this._wx) {
-        this._wxPage = (this._wxPage + 1) % 3;
+        this._wxPage = (this._wxPage + 1) % 4;   // stats / sun-moon / air / 5-day forecast
         renderWxCycle();
       }
       // Cycle one parcel summary at a time on the Tracker tile (every 5s).
@@ -496,6 +496,7 @@ function wxCycleHtml(page, w, air, sensor) {
       "Very high": "V.high", "Extreme": "Extr" };
     return b ? ` <span class="cb ${lvlClass(b)}">${esc(SHORT[b] || b)}</span>` : "";
   };
+  if (page === 3) return forecastPage(w);             // 5-day forecast (Today + next 4)
   if (page === 1) {                                   // sun / sunset / moon
     const moon = w?.moon || {};
     const moonIco = MOON_EMOJI[moon.index] ?? "🌙";
@@ -530,9 +531,10 @@ function renderWeather(el, w) {
   const c = w.current || {};
   const unit = w.units?.temperature || "°";
   const emoji = WMO_EMOJI[c.code] ?? "•";
-  const days = (w.daily || []).slice(1, 5);
   const t = (x) => (x == null || Number.isNaN(x) ? "—" : Math.round(x) + unit);
 
+  // The 5-day forecast is now a page in the cycling row (see wxCycleHtml page 3), so it's
+  // no longer permanently taking space; 4 dots for the 4 pages.
   el.innerHTML = `
     <div class="wx-now">
       <div style="font-size:50px">${emoji}</div>
@@ -544,19 +546,22 @@ function renderWeather(el, w) {
       </div>
     </div>
     <div class="wx-cycle" id="wx-cycle"></div>
-    <div class="wx-dots" id="wx-dots"><i></i><i></i><i></i></div>
-    <div class="wx-forecast">
-      ${days.map((d) => `
-        <div class="wx-day">
-          <div class="d">${esc(dayName(d.date))}</div>
-          <div class="ico">${forecastIcon(d.code, d.precip_prob)}</div>
-          <div class="temps">
-            <span class="hi">${d.tmax != null ? Math.round(d.tmax) + "°" : "—"}</span>
-            <span class="lo">${d.tmin != null ? Math.round(d.tmin) + "°" : "—"}</span>
-          </div>
-          ${d.precip_prob != null ? `<div class="pp">💧${d.precip_prob}%</div>` : ""}
-        </div>`).join("")}
-    </div>`;
+    <div class="wx-dots" id="wx-dots"><i></i><i></i><i></i><i></i></div>`;
+}
+
+// The 5-day forecast page: Today + the next 4 days, each with its max/min.
+function forecastPage(w) {
+  const days = (w?.daily || []).slice(0, 5);
+  return days.map((d, i) => `
+    <div class="wx-day">
+      <div class="d">${i === 0 ? "Today" : esc(dayName(d.date))}</div>
+      <div class="ico">${forecastIcon(d.code, d.precip_prob)}</div>
+      <div class="temps">
+        <span class="hi">${d.tmax != null ? Math.round(d.tmax) + "°" : "—"}</span>
+        <span class="lo">${d.tmin != null ? Math.round(d.tmin) + "°" : "—"}</span>
+      </div>
+      ${d.precip_prob != null ? `<div class="pp">💧${d.precip_prob}%</div>` : ""}
+    </div>`).join("");
 }
 
 // Fill the Indoor (Hive) + Solar (EcoFlow) tiles. Both degrade to "—" until configured.

@@ -40,7 +40,7 @@ async def _tracker_scheduler() -> None:
     """Poll the auto trackers (e.g. the holiday price) on a slow interval so alerts
     fire even when nobody has the tracker page open. Holiday prices move slowly, so
     the default is every few hours; tunable via config `trackers.interval_seconds`."""
-    interval = float((config.get().get("trackers") or {}).get("interval_seconds", 10800))
+    interval = float((config.get().get("trackers") or {}).get("interval_seconds", 3600))
     while True:
         try:
             await trackers.check_all_auto()
