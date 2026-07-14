@@ -108,7 +108,7 @@ html, body {
 .wx-live:empty { display: none; }
 /* Weather card cycles between two views that both fill the card: the detail view (all three
    pill rows stacked: stats / sun-moon / air) and the 5-day forecast. */
-.wx-body { flex: 1; display: flex; flex-direction: column; }
+.wx-body { flex: 1; display: flex; flex-direction: column; margin-top: 12px; }
 #wx-stage { flex: 1; display: flex; flex-direction: column; justify-content: center;
             gap: 8px; min-height: 0; }
 .wx-cycle { display: flex; gap: 8px; }
