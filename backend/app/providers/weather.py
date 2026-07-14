@@ -33,7 +33,8 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
                    "dew_point_2m,is_day,weather_code,wind_speed_10m,wind_direction_10m,"
                    "wind_gusts_10m",
         "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                 "precipitation_probability_max,sunrise,sunset",
+                 "precipitation_probability_max,wind_speed_10m_max,"
+                 "wind_direction_10m_dominant,cloud_cover_mean,sunrise,sunset",
         "forecast_days": 5,
         "temperature_unit": units.get("temperature", "celsius"),
         "wind_speed_unit": units.get("wind", "kmh"),
@@ -61,6 +62,9 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
             "tmax": at("temperature_2m_max", i),
             "tmin": at("temperature_2m_min", i),
             "precip_prob": at("precipitation_probability_max", i),
+            "wind_max": at("wind_speed_10m_max", i),
+            "wind_compass": _compass(at("wind_direction_10m_dominant", i)),
+            "cloud": at("cloud_cover_mean", i),
             "sunrise": at("sunrise", i),
             "sunset": at("sunset", i),
         })

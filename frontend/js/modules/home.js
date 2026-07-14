@@ -391,10 +391,14 @@ export const home = {
     const car = el.querySelector("#carousel");
     if (!car) return;
     const c = this._clocks[this._carIdx % this._clocks.length];
+    // tz abbreviation goes on the sub line (not beside the label): a long city name in the
+    // nowrap/ellipsis title row would otherwise clip the tz off the right edge.
+    const tz = tzAbbr(now, c.tz);
+    const when = fmt(now, { weekday: "short", day: "numeric", month: "short" }, c.tz);
     car.innerHTML = `
-      <div class="hs-k">🌍 ${esc(c.label)} <span class="tz">${esc(tzAbbr(now, c.tz))}</span></div>
+      <div class="hs-k">🌍 ${esc(c.label)}</div>
       <div class="hs-v">${fmt(now, { hour: "2-digit", minute: "2-digit", hour12: false }, c.tz)}</div>
-      <div class="hs-s">${fmt(now, { weekday: "short", day: "numeric", month: "short" }, c.tz)}</div>`;
+      <div class="hs-s">${tz ? `<span class="tz">${esc(tz)}</span> · ` : ""}${esc(when)}</div>`;
   },
 
   unmount() {
@@ -525,10 +529,17 @@ function renderWeather(el, w) {
     </div>`;
 }
 
-// The 5-day forecast page: Today + the next 4 days, each with its max/min.
+// The 5-day forecast page: Today + the next 4 days. Low stacks under high (narrower tile,
+// so 5 fit without overflowing the card), with per-day precip / wind / cloud meta lines.
 function forecastPage(w) {
   const days = (w?.daily || []).slice(0, 5);
-  return days.map((d, i) => `
+  return days.map((d, i) => {
+    // Unit-less on each tile (the stats pill already labels the wind unit) to stay narrow.
+    const meta = [];
+    if (d.precip_prob != null) meta.push(`💧 ${d.precip_prob}%`);
+    if (d.wind_max != null) meta.push(`💨 ${Math.round(d.wind_max)}`);
+    if (d.cloud != null) meta.push(`☁ ${Math.round(d.cloud)}%`);
+    return `
     <div class="wx-day">
       <div class="d">${i === 0 ? "Today" : esc(dayName(d.date))}</div>
       <div class="ico">${forecastIcon(d.code, d.precip_prob)}</div>
@@ -536,8 +547,9 @@ function forecastPage(w) {
         <span class="hi">${d.tmax != null ? Math.round(d.tmax) + "°" : "—"}</span>
         <span class="lo">${d.tmin != null ? Math.round(d.tmin) + "°" : "—"}</span>
       </div>
-      ${d.precip_prob != null ? `<div class="pp">💧${d.precip_prob}%</div>` : ""}
-    </div>`).join("");
+      <div class="wx-meta">${meta.map((m) => `<span>${m}</span>`).join("")}</div>
+    </div>`;
+  }).join("");
 }
 
 // Fill the Indoor (Hive) + Solar (EcoFlow) tiles. Both degrade to "—" until configured.

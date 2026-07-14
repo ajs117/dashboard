@@ -97,7 +97,7 @@ html, body {
 /* Weather */
 .weather-card { grid-column: 2; grid-row: 1 / span 3; background: var(--panel);
                 border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px;
-                display: flex; flex-direction: column; }
+                display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .wx-now { display: flex; align-items: center; gap: 14px; }
 .wx-temp { font-size: 56px; font-weight: 700; line-height: 1; }
 .wx-text { font-size: 17px; margin-top: 4px; }
@@ -131,15 +131,17 @@ html, body {
 .wx-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
 .wx-dots i.on { background: var(--accent); }
 .wx-forecast { display: flex; gap: 7px; margin-top: 8px; }
-.wx-day { flex: 1; background: var(--panel-2); border-radius: 10px; padding: 11px 4px;
-          text-align: center; font-size: 13px; display: flex; flex-direction: column;
-          gap: 6px; justify-content: center; }
+.wx-day { flex: 1 1 0; min-width: 0; background: var(--panel-2); border-radius: 10px;
+          padding: 10px 3px; text-align: center; font-size: 13px; display: flex;
+          flex-direction: column; gap: 5px; justify-content: center; }
 .wx-day .d { color: var(--muted); font-weight: 600; }
 .wx-day .ico { font-size: 26px; line-height: 1; }
-.wx-day .temps { display: flex; justify-content: center; align-items: baseline; gap: 8px; }
-.wx-day .hi { font-weight: 700; font-size: 16px; }
-.wx-day .lo { color: var(--muted); font-size: 15px; }
-.wx-day .pp { color: var(--muted); }
+/* Low stacks under high — keeps each day tile narrow so all 5 fit inside the card. */
+.wx-day .temps { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.wx-day .hi { font-weight: 700; font-size: 18px; }
+.wx-day .lo { color: var(--muted); font-size: 14px; }
+.wx-day .wx-meta { display: flex; flex-direction: column; gap: 1px; color: var(--muted);
+                   font-size: 11.5px; white-space: nowrap; }
 
 /* World-clock carousel (full width) */
 /* Left-column row 3: world clock (cycling) + Indoor (Hive) + Solar (EcoFlow) tiles. */
@@ -149,7 +151,7 @@ html, body {
   display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 .hs-k { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden;
         text-overflow: ellipsis; }
-.hs-k .tz { font-size: 11px; }
+.hs-s .tz { font-weight: 600; color: var(--fg); }
 .hs-v { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .hs-s { font-size: 12px; color: var(--muted); }
 #carousel > div { animation: wxfade .35s ease; }   /* fade the clock as it cycles cities */
