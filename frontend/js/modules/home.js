@@ -149,7 +149,8 @@ export const home = {
       }
       this._renderCarousel(el);
       // Countdown tile: render on first tick + at midnight (day change); cycle if several.
-      const cds = cfg.countdowns || [];
+      // Sorted soonest-first so the nearest event leads, not whichever was added last.
+      const cds = sortedCountdowns(cfg.countdowns);
       if (this._sec % 10 === 0 && cds.length > 1) {
         this._cdIdx = (this._cdIdx + 1) % cds.length;
         renderCountdown(el, cds, this._cdIdx);
@@ -578,6 +579,20 @@ function renderHomeStrip(el, cfg, solar, indoor) {
     sol.innerHTML = `<div class="hs-k">🌞 Solar</div><div class="hs-v">${v}</div>`
       + `<div class="hs-s">${esc(sub)}</div>`;
   }
+}
+
+// Order countdowns soonest-first, dropping ones that have already passed — config order is
+// just the order they were added, which isn't what you want to see on the tile.
+function sortedCountdowns(list) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const withDates = (list || []).map((c) => {
+    const t = new Date(`${c.date}T00:00:00`);
+    return { c, time: t.getTime() };
+  }).filter((x) => !Number.isNaN(x.time));
+  const upcoming = withDates.filter((x) => x.time >= today.getTime());
+  // All in the past -> keep the most recent one rather than showing an empty tile.
+  const use = upcoming.length ? upcoming : withDates.slice(-1);
+  return use.sort((a, b) => a.time - b.time).map((x) => x.c);
 }
 
 // Countdown tile: whole days until a dated event (cycles through several, like the clock).

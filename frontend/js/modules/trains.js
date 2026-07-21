@@ -8,11 +8,19 @@ function expClass(etd, cancelled) {
 }
 
 export const trains = {
-  _timer: null,
+  _timer: null, _clkTimer: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
-    el.innerHTML = `<div class="trains" id="trains"><div class="muted" style="padding:24px">Loading departures…</div></div>`;
+    el.innerHTML = `<div class="trains" id="trains"><div class="board-loading muted">Loading departures…</div></div>`;
+    // The board clock ticks every second on its own. It used to be written only inside
+    // _render (i.e. once per 30s data refresh), so it looked frozen between fetches.
+    const tickClock = () => {
+      const clk = el.querySelector("#bh-clock");
+      if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
+        { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    };
+    this._clkTimer = setInterval(tickClock, 1000);
     const load = async () => {
       try {
         const env = await ctx.api("/api/trains");
@@ -24,7 +32,7 @@ export const trains = {
       } catch (e) {
         const root = el.querySelector("#trains");
         if (root) root.innerHTML =
-          `<div class="err" style="padding:24px">Departures unavailable.<br>
+          `<div class="err board-loading">Departures unavailable.<br>
            <span class="muted">Check the Darwin token / station code in config.</span></div>`;
       }
     };
@@ -78,6 +86,7 @@ export const trains = {
         </div>
       </div>`;
 
+    // Seed the clock immediately so it isn't blank until the next 1s tick.
     const clk = el.querySelector("#bh-clock");
     if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
       { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -100,5 +109,5 @@ export const trains = {
     });
   },
 
-  unmount() { clearInterval(this._timer); },
+  unmount() { clearInterval(this._timer); clearInterval(this._clkTimer); },
 };

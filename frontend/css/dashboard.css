@@ -234,6 +234,9 @@ html, body {
   font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, ui-monospace, monospace; }
 .board-head { display: flex; justify-content: space-between; align-items: center;
   padding: 20px 24px 18px 150px; border-bottom: 2px solid rgba(255,174,38,.30); }
+/* Loading / error text sits clear of the floating Back button (same 150px gutter as
+   .board-head), otherwise it renders underneath it. */
+.board-loading { padding: 24px 24px 24px 150px; }
 .bh-title { display: flex; align-items: baseline; gap: 14px; }
 .bh-station { font-size: 31px; font-weight: 700; letter-spacing: 1px;
   text-shadow: 0 0 8px rgba(255,174,38,.45); }
