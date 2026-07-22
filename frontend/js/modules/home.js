@@ -18,6 +18,7 @@ const APPS = [
   { route: "radar", ico: "🌧️", label: "Rain Radar" },
   { route: "trains", ico: "🚆", label: "Trains" },
   { route: "tracker", ico: "📈", label: "Tracker" },
+  { route: "ring", ico: "📹", label: "Cameras" },
 ];
 
 const fmt = (date, opts, tz) =>
@@ -52,6 +53,7 @@ export const home = {
   _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
   _air: null, _airTimer: null, _wx: null, _wxPage: 0, _homeTimer: null, _sec: 0,
   _cdIdx: 0, _cdDay: null, _appTimer: null, _parcelSubs: [], _parcelSubIdx: 0,
+  _cams: [], _camIdx: 0, _camTimer: null, _camListTimer: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -100,6 +102,7 @@ export const home = {
           <div class="hs-tile" id="countdown"><div class="hs-k">⏳ Countdown</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-indoor"><div class="hs-k">🏠 Indoor</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-solar"><div class="hs-k">🌞 Solar</div><div class="hs-v">—</div></div>
+          <div class="hs-tile hs-cam" id="home-cam" hidden></div>
         </div>
 
         <div class="ticker-bar"><div class="ticker" id="ticker">
@@ -315,6 +318,35 @@ export const home = {
     loadHome();
     this._homeTimer = setInterval(loadHome, (cfg.cache?.solar || 60) * 1000);
 
+    // Ring camera tile: cycles through the ACTIVE cameras, fetching only the one on
+    // screen. Cameras that are off on a schedule are filtered out by the backend, so the
+    // cycle skips them instead of showing a stale frame.
+    const camSecs = Math.max(5, cfg.ring?.interval_seconds || 30);
+    const loadCamList = async () => {
+      try {
+        const env = await ctx.api("/api/ring/cameras");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        const d = env.data || {};
+        const active = (d.cameras || []).filter((c) => c.active);
+        const tile = el.querySelector("#home-cam");
+        if (!tile) return;
+        this._cams = active;
+        tile.hidden = !(d.enabled && active.length);
+        if (this._camIdx >= active.length) this._camIdx = 0;
+        if (!tile.hidden) renderCamTile(el, this._cams, this._camIdx);
+      } catch (e) { /* tile stays hidden */ }
+    };
+    await loadCamList();
+    if (ctx.isCurrent && !ctx.isCurrent()) return;
+    // Re-list periodically so a camera coming back on its schedule rejoins the cycle.
+    this._camListTimer = setInterval(loadCamList, (cfg.cache?.ring_cameras || 300) * 1000);
+    // Advance to the next camera (and pull a fresh frame) on the snapshot interval.
+    this._camTimer = setInterval(() => {
+      if (!this._cams.length) return;
+      this._camIdx = (this._camIdx + 1) % this._cams.length;
+      renderCamTile(el, this._cams, this._camIdx);
+    }, camSecs * 1000);
+
     const loadStocks = async () => {
       try {
         const env = await ctx.api("/api/stocks");
@@ -415,6 +447,8 @@ export const home = {
     clearInterval(this._indoorTimer);
     clearInterval(this._airTimer);
     clearInterval(this._homeTimer);
+    clearInterval(this._camTimer);
+    clearInterval(this._camListTimer);
     cancelAnimationFrame(this._tkRAF);
   },
 };
@@ -593,6 +627,22 @@ function sortedCountdowns(list) {
   // All in the past -> keep the most recent one rather than showing an empty tile.
   const use = upcoming.length ? upcoming : withDates.slice(-1);
   return use.sort((a, b) => a.time - b.time).map((x) => x.c);
+}
+
+// Home camera tile: one active Ring camera at a time, cycling. Only the visible camera is
+// fetched, so 4 cameras cost the same as 1. Cache-busted so WebKit shows a fresh frame.
+function renderCamTile(el, cams, idx) {
+  const tile = el.querySelector("#home-cam");
+  if (!tile || !cams.length) return;
+  const c = cams[idx % cams.length];
+  const src = `/api/ring/snapshot/${encodeURIComponent(c.id)}?t=${Date.now()}`;
+  tile.innerHTML = `<div class="hs-k">📹 ${esc(c.name)}</div>`
+    + `<div class="hs-cam-img"><img alt="${esc(c.name)}" src="${src}"></div>`;
+  const img = tile.querySelector("img");
+  if (img) img.onerror = () => {
+    const w = tile.querySelector(".hs-cam-img");
+    if (w) w.innerHTML = `<div class="hs-cam-off">no image</div>`;
+  };
 }
 
 // Countdown tile: whole days until a dated event (cycles through several, like the clock).

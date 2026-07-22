@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from .. import config
 from ..cache import cache
 from ..providers import (
     aircraft, air_quality, ecoflow, facts, govee, news, photos, radar,
-    radar_forecast, route, stocks, trains, weather,
+    radar_forecast, ring, route, stocks, trains, weather,
 )
 
 router = APIRouter(prefix="/api", tags=["data"])
@@ -127,6 +127,47 @@ async def get_indoor() -> dict[str, Any]:
     cfg = config.get()
     ttl = _ttls().get("indoor", 60)
     return await cache.get_or_fetch("indoor_room", ttl, lambda: govee.fetch(cfg, "govee_indoor"))
+
+
+_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+
+def _require_local(request: Request) -> None:
+    """Camera imagery is only served to the kiosk itself (which loads from localhost).
+
+    The rest of the API is deliberately open on the LAN, but a camera feed is a much
+    bigger privacy exposure. The frontend holds no secret it could authenticate with, so
+    a token would have to be readable by any LAN client anyway - restricting to loopback
+    is the control that actually works here.
+    """
+    host = request.client.host if request.client else ""
+    if host not in _LOOPBACK:
+        raise HTTPException(status_code=403, detail="Ring endpoints are localhost-only")
+
+
+@router.get("/ring/cameras")
+async def get_ring_cameras(request: Request) -> dict[str, Any]:
+    _require_local(request)
+    cfg = config.get()
+    ttl = _ttls().get("ring_cameras", 300)
+    return await cache.get_or_fetch("ring_cameras", ttl, lambda: ring.list_cameras(cfg))
+
+
+@router.get("/ring/snapshot/{cam_id}")
+async def get_ring_snapshot(cam_id: str, request: Request) -> Response:
+    _require_local(request)
+    cfg = config.get()
+    # Cache per-camera for the configured interval so the home tile and the Ring page
+    # share one upstream fetch instead of each hitting Ring separately.
+    ttl = float((cfg.get("ring") or {}).get("interval_seconds", 30))
+    env = await cache.get_or_fetch(
+        f"ring_snap:{cam_id}", ttl, lambda: ring.snapshot(cfg, cam_id)
+    )
+    img = env.get("data")
+    if not img:
+        raise HTTPException(status_code=404, detail="no snapshot (camera off or offline)")
+    return Response(content=img, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
 
 
 @router.get("/govee/devices")

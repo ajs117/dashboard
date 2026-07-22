@@ -157,6 +157,36 @@ html, body {
 .hs-s { font-size: 12px; color: var(--muted); }
 #carousel > div { animation: wxfade .35s ease; }   /* fade the clock as it cycles cities */
 
+/* Ring camera tile on the home strip (cycles through active cameras) */
+.hs-cam { padding: 8px 8px 6px; gap: 4px; }
+.hs-cam[hidden] { display: none; }          /* beat .hs-tile's display:flex */
+.hs-cam .hs-cam-img { flex: 1; min-height: 0; border-radius: 8px; overflow: hidden;
+  background: var(--panel-2); display: flex; align-items: center; justify-content: center; }
+.hs-cam .hs-cam-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hs-cam .hs-cam-off { font-size: 12px; color: var(--muted); }
+
+/* ============ RING (camera snapshots) ============ */
+.ring { height: 100%; padding: 12px; overflow: hidden; }
+.ring-loading { padding: 24px 24px 24px 150px; }   /* clear the floating Back button */
+.ring-hint { font-size: 14px; }
+.ring-grid { height: 100%; display: grid; gap: 10px;
+  grid-template-columns: repeat(2, 1fr); grid-auto-rows: 1fr; }
+/* Tapping a camera promotes it to fill the grid; the rest collapse away. */
+.ring-grid.has-big { grid-template-columns: 1fr; }
+.ring-grid.has-big .ring-cam:not(.is-big) { display: none; }
+.ring-cam { position: relative; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.ring-cam .rc-img { flex: 1; min-height: 0; background: #000;
+  display: flex; align-items: center; justify-content: center; }
+.ring-cam .rc-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ring-cam .rc-off { color: var(--muted); font-size: 15px; }
+.ring-cam.is-off .rc-img { background: var(--panel-2); }
+.ring-cam .rc-foot { display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; font-size: 14px; }
+.ring-cam .rc-name { font-weight: 600; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.ring-cam .rc-bat { color: var(--muted); font-size: 12px; }
+
 /* Stocks ticker (full-width scrolling bar) */
 .ticker-bar { grid-column: 1 / span 2; grid-row: 5; background: var(--panel);
   border: 1px solid var(--line); border-radius: 12px; height: 46px;

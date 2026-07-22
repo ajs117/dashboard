@@ -4,8 +4,9 @@ import { aircraft } from "./modules/aircraft.js";
 import { radar } from "./modules/radar.js";
 import { trains } from "./modules/trains.js";
 import { tracker } from "./modules/tracker.js";
+import { ring } from "./modules/ring.js";
 
-const MODULES = { home, aircraft, radar, trains, tracker };
+const MODULES = { home, aircraft, radar, trains, tracker, ring };
 
 export const state = { config: null };
 

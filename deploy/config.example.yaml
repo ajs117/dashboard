@@ -122,6 +122,18 @@ parcel_api:
   provider: "parcelapp"
   api_key: ""           # api-key header value from web.parcelapp.net (Pi-only/gitignored)
 
+# --- Ring cameras (snapshots only) ---
+# Ring has no public API; this uses the community `ring-doorbell` library. Auth is
+# capture-once: run `python3 deploy/scripts/ring_auth.py` ON THE PI, sign in with your
+# Ring email/password + the 2FA code, and it writes a refresh token to token_file.
+# Ring rotates that token, so the file must stay writable — keep it on /data, gitignored.
+# Snapshots only (no live video: the kiosk's WPE build has no WebRTC stack).
+# Cameras that are off on a schedule are detected and skipped automatically.
+ring:
+  enabled: false
+  token_file: ""          # blank = ring_token.json next to this config (i.e. /data)
+  interval_seconds: 30    # how often a snapshot is refreshed (per camera)
+
 # --- Cache TTLs (seconds) ---
 cache:
   weather: 600
@@ -134,6 +146,7 @@ cache:
   indoor: 60            # Govee thermo-hygrometer poll
   air: 1800             # air quality / UV / pollen (Open-Meteo)
   solar: 60             # EcoFlow solar output
+  ring_cameras: 300     # Ring camera list (snapshots use ring.interval_seconds)
 
 # --- Frontend refresh intervals (seconds) ---
 refresh:
