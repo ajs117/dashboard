@@ -161,8 +161,10 @@ html, body {
    normal icon/label face and a camera snapshot. The preview is absolutely positioned so
    the image NEVER contributes to layout - otherwise it would stretch the flex tile and
    knock the other launcher tiles out of alignment. */
-.app-tile .ring-face { display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 6px; }
+/* Fill the tile and centre exactly like a plain tile's own flex children would, so the
+   nesting doesn't push the icon/label lower than the other launcher tiles. */
+.app-tile .ring-face { position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px; padding: 14px 8px; }
 .app-tile .ring-face[hidden] { display: none; }
 .app-tile .ring-prev { position: absolute; inset: 0; border-radius: 18px; overflow: hidden;
   display: flex; align-items: center; justify-content: center; background: #000; }
