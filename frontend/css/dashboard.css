@@ -184,9 +184,11 @@ html, body {
 .ring-grid.has-big .ring-cam:not(.is-big) { display: none; }
 .ring-cam { position: relative; background: var(--panel); border: 1px solid var(--line);
   border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-.ring-cam .rc-img { flex: 1; min-height: 0; background: #000;
+.ring-cam .rc-img { flex: 1; min-height: 0; background: var(--panel-2);
   display: flex; align-items: center; justify-content: center; }
-.ring-cam .rc-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* Hidden until the first frame has decoded, so an empty <img> can't flash a black box. */
+.ring-cam .rc-img img { width: 100%; height: 100%; object-fit: contain; display: none; }
+.ring-cam .rc-img img.ready { display: block; }
 .ring-cam .rc-off { color: var(--muted); font-size: 15px; }
 .ring-cam.is-off .rc-img { background: var(--panel-2); }
 .ring-cam .rc-foot { display: flex; justify-content: space-between; align-items: center;

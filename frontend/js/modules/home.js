@@ -88,11 +88,10 @@ export const home = {
           <div class="car-track" id="apps-track">
             ${APPS.map((a) => `
               <button class="app-tile" data-route="${a.route}">
-                <span class="${a.route === "ring" ? "ring-face" : ""}">
-                  <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
-                  <span class="tile-sub" data-route="${a.route}"></span>
-                </span>
-                ${a.route === "ring" ? `<span class="ring-prev" hidden></span>` : ""}
+                ${a.route === "ring" ? `<span class="ring-face">` : ""}
+                <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
+                <span class="tile-sub" data-route="${a.route}"></span>
+                ${a.route === "ring" ? `</span><span class="ring-prev" hidden></span>` : ""}
                 <span class="tile-badge" hidden>!</span>
               </button>`).join("")}
           </div>
@@ -643,17 +642,31 @@ function renderCamTile(el, cams, idx) {
   const prev = tile.querySelector(".ring-prev");
   if (!face || !prev) return;
   const showCam = idx >= 0 && cams.length > 0;
-  face.hidden = showCam;
-  prev.hidden = !showCam;
-  if (!showCam) { prev.innerHTML = ""; return; }
+  if (!showCam) {                       // back to the plain launcher face
+    face.hidden = false;
+    prev.hidden = true;
+    prev.innerHTML = "";
+    return;
+  }
   const c = cams[idx % cams.length];
   const src = `/api/ring/snapshot/${encodeURIComponent(c.id)}?t=${Date.now()}`;
-  prev.innerHTML = `<img alt="${esc(c.name)}" src="${src}">`
-    + `<span class="rp-name">${esc(c.name)}</span>`;
-  const img = prev.querySelector("img");
-  // If a camera drops out mid-cycle, fall back to the normal tile face rather than
-  // leaving a broken-image box on the launcher.
-  if (img) img.onerror = () => { face.hidden = false; prev.hidden = true; prev.innerHTML = ""; };
+  // Decode the snapshot BEFORE swapping the tile over. Fetching from Ring takes a couple
+  // of seconds on a Zero 2W, and revealing the (black) preview first showed an empty box
+  // until the JPEG landed. If it fails or never arrives, the tile just stays a button.
+  const pre = new Image();
+  let done = false;
+  const giveUp = setTimeout(() => { done = true; }, 8000);
+  pre.onload = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(giveUp);
+    prev.innerHTML = `<img alt="${esc(c.name)}" src="${src}">`
+      + `<span class="rp-name">${esc(c.name)}</span>`;
+    face.hidden = true;
+    prev.hidden = false;
+  };
+  pre.onerror = () => { done = true; clearTimeout(giveUp); };   // stay on the normal face
+  pre.src = src;
 }
 
 // Countdown tile: whole days until a dated event (cycles through several, like the clock).

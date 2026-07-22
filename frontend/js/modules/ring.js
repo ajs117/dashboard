@@ -84,13 +84,18 @@ export const ring = {
   _refreshImages(el) {
     const stamp = Date.now();
     el.querySelectorAll("img[data-cam]").forEach((img) => {
-      img.src = `/api/ring/snapshot/${encodeURIComponent(img.dataset.cam)}?t=${stamp}`;
-      img.onerror = () => {
+      const src = `/api/ring/snapshot/${encodeURIComponent(img.dataset.cam)}?t=${stamp}`;
+      // Decode first, then swap: assigning .src directly blanks the visible frame while
+      // the new one downloads (a couple of seconds via Ring), which flashes black.
+      const pre = new Image();
+      pre.onload = () => { img.src = src; img.classList.add("ready"); };
+      pre.onerror = () => {
         const wrap = img.closest(".rc-img");
-        if (wrap && !wrap.querySelector(".rc-off")) {
+        if (wrap && !wrap.querySelector(".rc-off") && !img.classList.contains("ready")) {
           wrap.innerHTML = `<div class="rc-off">No image</div>`;
         }
       };
+      pre.src = src;
     });
   },
 
