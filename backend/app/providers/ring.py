@@ -152,10 +152,58 @@ async def list_cameras(cfg: dict[str, Any]) -> dict[str, Any]:
             return {"enabled": True, "cameras": [], "error": str(exc)[:160]}
 
 
+async def _fetch_snapshot(ring: Any, cam: Any, max_age: float) -> bytes | None:
+    """Fetch a camera's snapshot, tolerating Ring not producing a fresh one.
+
+    The library's own async_get_snapshot() asks Ring for a NEW capture and only returns an
+    image if the stored timestamp advances past the moment we asked. On mains-powered
+    models (e.g. the 2024 battery doorbell, kind=doorbell_tahoe) that timestamp often never
+    moves - Ring refreshes on its own cadence - so it retries and returns None forever,
+    even though a perfectly good recent JPEG is sitting there.
+
+    So: nudge Ring to refresh, give it a short window, then serve the newest image we have
+    as long as it isn't stale. A few-seconds-old frame beats a blank tile.
+    """
+    from ring_doorbell.const import SNAPSHOT_ENDPOINT, SNAPSHOT_TIMESTAMP_ENDPOINT
+
+    dev_id = cam._attrs.get("id")  # noqa: SLF001 - the library exposes no public accessor
+    payload = {"doorbot_ids": [dev_id]}
+    asked_at = time.time()
+
+    def _ts(resp: Any) -> float:
+        try:
+            stamps = (resp.json() or {}).get("timestamps") or []
+            return float(stamps[0]["timestamp"]) / 1000.0 if stamps else 0.0
+        except Exception:  # noqa: BLE001
+            return 0.0
+
+    # Ask for a fresh capture, then poll briefly for it to land.
+    latest = _ts(await ring.async_query(SNAPSHOT_TIMESTAMP_ENDPOINT, method="POST",
+                                        json=payload))
+    for _ in range(2):
+        if latest > asked_at:
+            break
+        await asyncio.sleep(1.0)
+        latest = _ts(await ring.async_query(SNAPSHOT_TIMESTAMP_ENDPOINT, method="POST",
+                                            json=payload))
+
+    # Serve whatever Ring has, provided it's recent enough to be meaningful.
+    if latest and (time.time() - latest) > max_age:
+        return None
+    resp = await ring.async_query(SNAPSHOT_ENDPOINT.format(dev_id))
+    content = getattr(resp, "content", None)
+    return content or None
+
+
 async def snapshot(cfg: dict[str, Any], cam_id: str) -> bytes | None:
     """JPEG bytes for one camera, or None if it's disabled/offline/failed."""
     if not _enabled(cfg):
         return None
+    r = cfg.get("ring") or {}
+    # Don't serve a frame older than a few refresh intervals - that's a dead camera, and a
+    # stale picture on a "live-ish" tile is worse than an honest blank.
+    max_age = float(r.get("max_snapshot_age_seconds",
+                          max(120.0, float(r.get("interval_seconds", 30)) * 4)))
     async with _lock:
         try:
             ring = await _session(cfg)
@@ -164,7 +212,7 @@ async def snapshot(cfg: dict[str, Any], cam_id: str) -> bytes | None:
                     continue
                 if not is_active(cam):
                     return None          # don't pay the retry cost on a disabled camera
-                return await cam.async_get_snapshot()
+                return await _fetch_snapshot(ring, cam, max_age)
             return None
         except Exception:  # noqa: BLE001 - a bad snapshot must not break the page
             _reset()
