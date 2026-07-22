@@ -53,7 +53,7 @@ export const home = {
   _trkTimer: null, _indoorTimer: null, _news: [], _facts: [], _sensor: null,
   _air: null, _airTimer: null, _wx: null, _wxPage: 0, _homeTimer: null, _sec: 0,
   _cdIdx: 0, _cdDay: null, _appTimer: null, _parcelSubs: [], _parcelSubIdx: 0,
-  _cams: [], _camIdx: 0, _camTimer: null, _camListTimer: null,
+  _cams: [], _camIdx: -1, _camShown: -1, _camTimer: null, _camListTimer: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -88,8 +88,11 @@ export const home = {
           <div class="car-track" id="apps-track">
             ${APPS.map((a) => `
               <button class="app-tile" data-route="${a.route}">
-                <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
-                <span class="tile-sub" data-route="${a.route}"></span>
+                <span class="${a.route === "ring" ? "ring-face" : ""}">
+                  <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
+                  <span class="tile-sub" data-route="${a.route}"></span>
+                </span>
+                ${a.route === "ring" ? `<span class="ring-prev" hidden></span>` : ""}
                 <span class="tile-badge" hidden>!</span>
               </button>`).join("")}
           </div>
@@ -102,7 +105,6 @@ export const home = {
           <div class="hs-tile" id="countdown"><div class="hs-k">⏳ Countdown</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-indoor"><div class="hs-k">🏠 Indoor</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-solar"><div class="hs-k">🌞 Solar</div><div class="hs-v">—</div></div>
-          <div class="hs-tile hs-cam" id="home-cam" hidden></div>
         </div>
 
         <div class="ticker-bar"><div class="ticker" id="ticker">
@@ -328,24 +330,25 @@ export const home = {
         if (ctx.isCurrent && !ctx.isCurrent()) return;
         const d = env.data || {};
         const active = (d.cameras || []).filter((c) => c.active);
-        const tile = el.querySelector("#home-cam");
-        if (!tile) return;
-        this._cams = active;
-        tile.hidden = !(d.enabled && active.length);
-        if (this._camIdx >= active.length) this._camIdx = 0;
-        if (!tile.hidden) renderCamTile(el, this._cams, this._camIdx);
-      } catch (e) { /* tile stays hidden */ }
+        this._cams = (d.enabled ? active : []);
+        if (!this._cams.length) renderCamTile(el, [], -1);   // back to the plain tile
+      } catch (e) { /* leave the tile on its normal face */ }
     };
     await loadCamList();
     if (ctx.isCurrent && !ctx.isCurrent()) return;
     // Re-list periodically so a camera coming back on its schedule rejoins the cycle.
     this._camListTimer = setInterval(loadCamList, (cfg.cache?.ring_cameras || 300) * 1000);
-    // Advance to the next camera (and pull a fresh frame) on the snapshot interval.
+    // Alternate: normal tile face -> camera 1 -> face -> camera 2 -> ... so the launcher
+    // still reads as a button most of the time. _camIdx of -1 is the plain face.
+    this._camIdx = -1;
     this._camTimer = setInterval(() => {
-      if (!this._cams.length) return;
-      this._camIdx = (this._camIdx + 1) % this._cams.length;
+      if (!this._cams.length) { renderCamTile(el, [], -1); return; }
+      // -1 -> 0, then each camera -> back to -1 before the next one.
+      this._camIdx = this._camIdx < 0
+        ? (this._camShown = ((this._camShown ?? -1) + 1) % this._cams.length)
+        : -1;
       renderCamTile(el, this._cams, this._camIdx);
-    }, camSecs * 1000);
+    }, Math.max(5, Math.round(camSecs / 2)) * 1000);
 
     const loadStocks = async () => {
       try {
@@ -629,20 +632,28 @@ function sortedCountdowns(list) {
   return use.sort((a, b) => a.time - b.time).map((x) => x.c);
 }
 
-// Home camera tile: one active Ring camera at a time, cycling. Only the visible camera is
-// fetched, so 4 cameras cost the same as 1. Cache-busted so WebKit shows a fresh frame.
+// The Cameras launcher tile doubles as a preview: it alternates between its normal
+// icon/label look and each active camera's latest snapshot. Only the camera currently
+// on screen is fetched, so 4 cameras cost the same as 1.
+// idx -1 = show the plain launcher face; 0..n-1 = show that camera.
 function renderCamTile(el, cams, idx) {
-  const tile = el.querySelector("#home-cam");
-  if (!tile || !cams.length) return;
+  const tile = el.querySelector('.app-tile[data-route="ring"]');
+  if (!tile) return;
+  const face = tile.querySelector(".ring-face");
+  const prev = tile.querySelector(".ring-prev");
+  if (!face || !prev) return;
+  const showCam = idx >= 0 && cams.length > 0;
+  face.hidden = showCam;
+  prev.hidden = !showCam;
+  if (!showCam) { prev.innerHTML = ""; return; }
   const c = cams[idx % cams.length];
   const src = `/api/ring/snapshot/${encodeURIComponent(c.id)}?t=${Date.now()}`;
-  tile.innerHTML = `<div class="hs-k">📹 ${esc(c.name)}</div>`
-    + `<div class="hs-cam-img"><img alt="${esc(c.name)}" src="${src}"></div>`;
-  const img = tile.querySelector("img");
-  if (img) img.onerror = () => {
-    const w = tile.querySelector(".hs-cam-img");
-    if (w) w.innerHTML = `<div class="hs-cam-off">no image</div>`;
-  };
+  prev.innerHTML = `<img alt="${esc(c.name)}" src="${src}">`
+    + `<span class="rp-name">${esc(c.name)}</span>`;
+  const img = prev.querySelector("img");
+  // If a camera drops out mid-cycle, fall back to the normal tile face rather than
+  // leaving a broken-image box on the launcher.
+  if (img) img.onerror = () => { face.hidden = false; prev.hidden = true; prev.innerHTML = ""; };
 }
 
 // Countdown tile: whole days until a dated event (cycles through several, like the clock).
