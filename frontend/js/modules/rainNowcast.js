@@ -23,11 +23,31 @@ const lon2x = (lon) => ((lon + 180) / 360) * 2 ** Z;
 const lat2y = (lat) =>
   ((1 - Math.asinh(Math.tan((lat * Math.PI) / 180)) / Math.PI) / 2) * 2 ** Z;
 
-// RGBA -> rain intensity scalar in [0,1]. Scheme 4 ramps blue(light) -> cyan -> green ->
-// yellow -> red(heavy), so red-minus-blue tracks intensity; alpha gates "is there echo".
+// RGBA -> rain intensity scalar in [0,1].
+//
+// Measured from real scheme-4 tiles (see the palette sampled off tilecache): rain echo is
+// strictly BLUE-dominant for light..moderate — light cyan rgb(136,221,238) deepening to
+// rgb(0,71,104) — then jumps to orange/yellow rgb(255,170,0)..rgb(255,238,0) for heavy.
+//
+// The previous (r-b) heuristic got this exactly backwards: r-b is NEGATIVE for every blue
+// rain colour (-102..-224), so real rain scored 0 ("none"), while the tile's semi-
+// transparent terrain/cloud wash - grey-brown pixels like rgba(108,104,93,36) where
+// r≈g≈b - scored ~0.48 and registered as permanent "light rain". Result: missed the rain
+// arriving, then claimed it was raining indefinitely.
+//
+// So: require a meaningful alpha AND an actual rain hue. Blue-dominant => light/moderate
+// scaled by how deep the blue is; red/orange-dominant with a low blue => heavy.
 function intensity(r, g, b, a) {
-  if (a < 40) return 0;
-  return Math.max(0, Math.min(1, (r - b) / 255 / 2 + 0.45));
+  if (a < 120) return 0;              // ignore the faint terrain wash entirely
+  const blueLead = b - r;             // >0 for every real light/moderate rain colour
+  if (blueLead > 25) {
+    // Light cyan (b-r ~102) -> deep blue (b-r ~224+). Deeper/darker = heavier.
+    const depth = Math.min(1, Math.max(0, (255 - g) / 200));   // g falls as rain intensifies
+    return Math.min(0.62, 0.10 + depth * 0.52);
+  }
+  // Heavy end of the ramp: strong red/orange/yellow, little blue.
+  if (r > 200 && b < 90) return Math.min(1, 0.68 + (255 - g) / 255 * 0.30);
+  return 0;                           // grey/brown terrain, coastlines, labels -> not rain
 }
 const LIGHT = 0.06, MODERATE = 0.5, HEAVY = 0.66;   // bucket thresholds on the scalar
 function levelOf(v) {
