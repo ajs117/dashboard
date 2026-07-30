@@ -388,8 +388,12 @@ export const home = {
     // immediately on contact. The first tile is highlighted at once, so releasing straight
     // away still opens something predictable.
     const HOLD_MS = 120;
-    const STEP_MS = 750;        // dwell per tile while held - slow enough to read and react
-    const tiles = Array.from(el.querySelectorAll(".app-tile"));
+    const STEP_MS = 1400;       // dwell per tile - slow enough to read the label and react
+    // Order by on-screen position, NOT DOM order: .car-track is a scrollable flex row, so a
+    // scrolled track makes document order disagree with what you see left-to-right, and the
+    // highlight appeared to jump around at random.
+    const tiles = Array.from(el.querySelectorAll(".app-tile"))
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
     if (!tiles.length) return;
     const track = el.querySelector("#apps-track");
     let holdTimer = null, stepTimer = null, giveUpTimer = null;

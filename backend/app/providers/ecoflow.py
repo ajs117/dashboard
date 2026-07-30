@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import random
 import ssl
 import threading
@@ -58,6 +59,63 @@ def _signed_get(path: str, access_key: str, secret_key: str,
         return json.loads(resp.read())
 
 
+# --- Certificate caching -------------------------------------------------------------------
+# EcoFlow rate-limits /sign/certification hard, and signals it with a MISLEADING error:
+#   code 8524 "some parameter is empty: accessKey,nonce,timestamp,sign"
+# for parameters that are demonstrably present (the identical call succeeds when not
+# throttled). Once tripped, the penalty window outlasts a 60s wait and gets worse the more
+# you retry - and without a certificate the MQTT broker answers "Not authorized", so solar
+# goes dead. So: persist the certificate and reuse it, including across restarts, instead of
+# asking for a new one on every reconnect.
+_CERT_TTL = 12 * 3600
+
+
+def _cert_cache_path() -> "Path":
+    from pathlib import Path
+    from .. import config as _config
+    src = _config.source_path()
+    return (src.parent if src else Path.cwd()) / "ecoflow_cert.json"
+
+
+def _load_cached_cert() -> dict[str, Any] | None:
+    try:
+        p = _cert_cache_path()
+        blob = json.loads(p.read_text("utf-8"))
+        if time.time() - float(blob.get("saved_at", 0)) < _CERT_TTL and blob.get("cert"):
+            return blob["cert"]
+    except Exception:  # noqa: BLE001 - no/oldcache is fine, we just fetch one
+        pass
+    return None
+
+
+def _save_cached_cert(cert: dict[str, Any]) -> None:
+    try:
+        p = _cert_cache_path()
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"saved_at": time.time(), "cert": cert}), encoding="utf-8")
+        os.chmod(tmp, 0o600)          # MQTT password is a credential
+        os.replace(tmp, p)
+    except Exception:  # noqa: BLE001 - caching is an optimisation, never fatal
+        pass
+
+
+def _get_cert(access_key: str, secret_key: str, force: bool = False) -> dict[str, Any]:
+    """A usable MQTT certificate, from cache when possible."""
+    if not force:
+        cached = _load_cached_cert()
+        if cached:
+            return cached
+    js = _signed_get("/iot-open/sign/certification", access_key, secret_key)
+    cert = js.get("data")
+    if not cert:
+        raise RuntimeError(
+            f"cert refused (code {js.get('code')}: {js.get('message')}) - "
+            "EcoFlow throttles this endpoint; reusing cache if available"
+        )
+    _save_cached_cert(cert)
+    return cert
+
+
 def parse_solar(state: dict[str, Any], pv_field: str | None = None) -> dict[str, Any]:
     """Pure: total solar watts (sum of PV inputs) + grid power from an accumulated quota."""
     if pv_field:
@@ -86,6 +144,10 @@ def _build_client(cert: dict[str, Any], sn: str):
         ok = not getattr(reason_code, "is_failure", bool(reason_code))
         _meta["connected"] = ok
         _meta["error"] = None if ok else f"connect: {reason_code}"
+        # "Not authorized" means the cached certificate is stale/revoked - flag it so the
+        # next loop fetches a fresh one (and only then spends a rate-limited request).
+        if not ok and "auth" in str(reason_code).lower():
+            _meta["cert_bad"] = True
         cl.subscribe(topic)
 
     def on_disconnect(cl, userdata, flags, reason_code, properties=None):
@@ -127,7 +189,10 @@ def _worker_loop(access_key: str, secret_key: str, serial: str) -> None:
                 _stop.wait(120)
                 continue
             _meta["sn"] = sn
-            cert = _signed_get("/iot-open/sign/certification", access_key, secret_key)["data"]
+            # Reuse the cached certificate; only force a new one if the cached credentials
+            # were themselves rejected (tracked below), never on a plain reconnect.
+            cert = _get_cert(access_key, secret_key, force=_meta.get("cert_bad", False))
+            _meta["cert_bad"] = False
             client = _build_client(cert, sn)
             client.connect(cert["url"], int(cert["port"]), keepalive=30)
             client.loop_start()
