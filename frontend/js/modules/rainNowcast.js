@@ -47,6 +47,10 @@ function intensity(r, g, b, a) {
   }
   // Heavy end of the ramp: strong red/orange/yellow, little blue.
   if (r > 200 && b < 90) return Math.min(1, 0.68 + (255 - g) / 255 * 0.30);
+  // KNOWN GAP: snow. RainViewer renders snow in a separate pink/purple/white palette that
+  // falls between the two tests above, so it currently reads as 0 (no echo). Fixing that
+  // needs colours MEASURED off real snow tiles - guessing at them is what broke this
+  // function in the first place - so it's deliberately left until there's snow to sample.
   return 0;                           // grey/brown terrain, coastlines, labels -> not rain
 }
 const LIGHT = 0.06, MODERATE = 0.5, HEAVY = 0.66;   // bucket thresholds on the scalar
