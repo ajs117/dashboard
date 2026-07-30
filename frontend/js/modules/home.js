@@ -94,6 +94,7 @@ export const home = {
               }<span class="tile-badge" hidden>!</span></button>`).join("")}
           </div>
           <button class="car-arrow" id="apps-next" aria-label="next">›</button>
+          <div class="hold-hint" id="hold-hint">release to open</div>
         </div>
 
         <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
@@ -382,8 +383,11 @@ export const home = {
   //   * press and HOLD (anywhere)  -> highlight starts cycling the tiles; release to open
   // HOLD_MS is the grace period before cycling kicks in, so a normal tap never triggers it.
   _setupLauncher(el, ctx) {
-    const HOLD_MS = 400;        // press longer than this = you're cycling, not tapping
-    const STEP_MS = 700;        // dwell per tile while held - slow enough to read and react
+    // No tap-to-open any more, so there's nothing to disambiguate from: start cycling almost
+    // immediately on contact. The first tile is highlighted at once, so releasing straight
+    // away still opens something predictable.
+    const HOLD_MS = 120;
+    const STEP_MS = 750;        // dwell per tile while held - slow enough to read and react
     const tiles = Array.from(el.querySelectorAll(".app-tile"));
     if (!tiles.length) return;
     const track = el.querySelector("#apps-track");
@@ -399,11 +403,15 @@ export const home = {
       cycling = false; idx = -1; startedOn = -1;
       clearPaint();
       if (track) track.classList.remove("cycling");
+      const hint = el.querySelector("#hold-hint");
+      if (hint) hint.classList.remove("on");
     };
 
     const beginCycle = () => {
       cycling = true;
       if (track) track.classList.add("cycling");
+      const hint = el.querySelector("#hold-hint");
+      if (hint) hint.classList.add("on");
       // Start from the tile actually under the finger when known, so a press that landed
       // correctly needs no extra cycling; otherwise start at the first tile.
       idx = startedOn >= 0 ? startedOn : 0;
@@ -422,18 +430,18 @@ export const home = {
       holdTimer = setTimeout(beginCycle, HOLD_MS);
     };
 
-    const onUp = (e) => {
+    const onUp = () => {
       if (cycling) {
         const chosen = idx;
         stop();
         if (chosen >= 0 && tiles[chosen]) ctx.go(tiles[chosen].dataset.route);
         return;
       }
-      // Released before the hold threshold: treat as a plain tap on whatever we pressed.
-      clearTimeout(holdTimer); holdTimer = null;
-      const wasOn = startedOn;
-      startedOn = -1;
-      if (wasOn >= 0 && tiles[wasOn]) ctx.go(tiles[wasOn].dataset.route);
+      // Released before the cycle started: do NOTHING. Plain taps are deliberately disabled
+      // on the launcher - this panel's press coordinate drifts, so a tap opened the wrong
+      // app often enough to be useless, and having both paths meant the tap always won the
+      // race before the hold could engage. Hold-to-cycle is the only way in now.
+      stop();
     };
 
     // Bind on the carousel so a press that lands BETWEEN tiles still starts a cycle -

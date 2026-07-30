@@ -113,6 +113,7 @@ def _worker_loop(access_key: str, secret_key: str, serial: str) -> None:
     paho's own loop handles short network blips (auto-reconnect); we rebuild the connection
     with a fresh certificate every ~45 min in case the MQTT password rotates.
     """
+    backoff = 30.0
     while not _stop.is_set():
         client = None
         try:
@@ -130,10 +131,23 @@ def _worker_loop(access_key: str, secret_key: str, serial: str) -> None:
             client = _build_client(cert, sn)
             client.connect(cert["url"], int(cert["port"]), keepalive=30)
             client.loop_start()
-            _stop.wait(45 * 60)                     # hold this connection, then refresh cert
+            backoff = 30.0                          # a good connect resets the backoff
+            # Hold the connection while data is flowing. Don't tear down a HEALTHY session on
+            # a timer: EcoFlow's certificate credentials are single-session and the REST API
+            # throttles repeated cert requests (returning a bogus "some parameter is empty"),
+            # after which MQTT answers "Not authorized" and solar goes dead. Only rebuild
+            # when messages actually stop arriving.
+            while not _stop.is_set():
+                _stop.wait(60)
+                last = float(_meta.get("last_msg") or 0.0)
+                if not _meta.get("connected") or (last and time.time() - last > 600):
+                    break                           # silent for 10 min -> reconnect
         except Exception as ex:  # noqa: BLE001 - never let the thread die
             _meta["error"] = str(ex)[:120]
-            _stop.wait(30)
+            # Exponential backoff: hammering the cert endpoint every 30s is what gets the
+            # account throttled in the first place.
+            _stop.wait(backoff)
+            backoff = min(backoff * 2, 900.0)
         finally:
             if client is not None:
                 try:
@@ -170,6 +184,20 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
         st = dict(_state)
     out = parse_solar(st, e.get("pv_field") or None)
     out["connected"] = bool(_meta.get("connected"))
-    if not st and _meta.get("error"):
+
+    # Age the reading. The MQTT broker can drop us (EcoFlow's cert credentials are
+    # single-session, and the API throttles reconnects), in which case _state keeps holding
+    # whatever arrived last - previously served forever as if live, so the tile silently
+    # froze on an old wattage. Past max_age we report the value as stale and blank the
+    # number instead of lying about it.
+    last = float(_meta.get("last_msg") or 0.0)
+    age = (time.time() - last) if last else None
+    max_age = float(e.get("max_age_seconds", 300))
+    out["age"] = round(age, 1) if age is not None else None
+    out["stale"] = bool(age is None or age > max_age)
+    if out["stale"]:
+        out["watts_now"] = None                      # don't present an old figure as "now"
+        out["grid_w"] = None
+    if _meta.get("error") and (out["stale"] or not st):
         out["error"] = _meta["error"]
     return out
