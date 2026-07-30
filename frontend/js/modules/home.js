@@ -109,12 +109,13 @@ export const home = {
           <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
-    // --- Launcher input: tap OR hold-to-cycle -------------------------------------------
+    // --- Launcher input: hold-to-cycle ONLY ---------------------------------------------
     // The touch panel reports a press coordinate that drifts, so hitting a specific small
     // tile is unreliable (the big isolated Back button always works). Hold-to-cycle removes
     // the need for an accurate position entirely, like an old phone's T9 cycling: press
-    // anywhere, the selection walks along the tiles with a highlight, release to open.
-    // A quick accurate tap still works normally, so nothing is lost.
+    // anywhere on the strip, the selection walks the tiles with a highlight, release to open.
+    // Plain taps are deliberately DISABLED here - they opened the wrong app too often, and
+    // while both paths existed the tap always won the race before a hold could engage.
     this._setupLauncher(el, ctx);
     const track = el.querySelector("#apps-track");
     const prevA = el.querySelector("#apps-prev"), nextA = el.querySelector("#apps-next");
@@ -713,8 +714,19 @@ function renderHomeStrip(el, cfg, solar, indoor) {
     let v = "—", sub = "set up EcoFlow";
     if (solar && solar.enabled) {
       const w = solar.watts_now;
-      v = w == null ? "0 W" : (w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W");
-      sub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today` : "now";
+      // Never render "no data" as "0 W" - that read as a genuine zero and looked simply
+      // wrong next to the EcoFlow app's real output. null/stale shows "—" plus why.
+      if (w == null) {
+        v = "—";
+        sub = solar.connected === false ? "no link to EcoFlow"
+          : (solar.stale ? "waiting for data" : "no reading");
+      } else {
+        v = w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W";
+        // Show how fresh the figure is; a silently frozen wattage was the original problem.
+        const age = solar.age;
+        sub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today`
+          : (age != null && age > 90 ? `${Math.round(age / 60)}m ago` : "now");
+      }
     }
     sol.innerHTML = `<div class="hs-k">🌞 Solar</div><div class="hs-v">${v}</div>`
       + `<div class="hs-s">${esc(sub)}</div>`;
