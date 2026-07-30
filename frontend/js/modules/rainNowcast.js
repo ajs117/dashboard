@@ -14,10 +14,21 @@
 
 const Z = 7;                 // RainViewer radar's native max zoom
 const TILE = 256;
-const RADIUS = 40;           // sample window half-size in px (~30 km at z7) — covers drift
+// Sample window half-size in px (~110 km at z7 per side). This must be big enough that an
+// approaching front is IN VIEW for several frames - at RADIUS 40 the rain only entered the
+// window in the last frame or two, so there was nothing for the correlator to track and it
+// returned zero motion ("dry" with rain 40px upwind). At 90 the same front is visible for
+// 5+ frames and its centroid marches measurably toward the centre.
+const RADIUS = 90;
 const SCHEME = "4/1_1";      // same colour scheme the map draws, so tiles are cache-shared
 const MAX_FRAMES = 8;        // most recent frames to consider (~80 min of history)
-const HORIZON = 6;           // prediction steps (× frame interval ≈ next hour)
+const HORIZON = 12;          // prediction steps (× frame interval ≈ next 2 hours)
+// Motion is measured across frames this far apart, not adjacent ones: at ~10 min/frame a
+// typical front only shifts a couple of px per frame at z7, which the correlator can't
+// separate from cells growing/decaying (it was returning ~0 and predicting "dry" with rain
+// 40px upwind). A longer baseline gives a displacement big enough to measure, then we
+// divide back down to per-frame.
+const MOTION_SPAN = 3;
 
 const lon2x = (lon) => ((lon + 180) / 360) * 2 ** Z;
 const lat2y = (lat) =>
@@ -113,21 +124,58 @@ const at = (grid, x, y) => {
   return grid[y * size + x];
 };
 
-// Estimate cell motion (px/frame) by finding the shift that best aligns the newest two
-// fields — classic radar advection. Searches a modest range; returns {vx,vy}.
+// Intensity-weighted centroid of the echo in a field, or null if there's too little to
+// be meaningful. This is what drives the motion estimate.
+function centroid(grid) {
+  const size = RADIUS * 2 + 1;
+  let sx = 0, sy = 0, w = 0, n = 0;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const v = grid[y * size + x];
+      if (v > 0) { sx += x * v; sy += y * v; w += v; n++; }
+    }
+  }
+  if (n < 40 || w <= 0) return null;      // a few stray pixels aren't a trackable field
+  return { x: sx / w, y: sy / w, n };
+}
+
+// Estimate cell motion (px/frame) by tracking how the echo's centroid moves between two
+// fields. This replaced a brute-force block correlator: on real data that search took 77s
+// on the Pi AND still returned (0,0), because a front entering the window looks like echo
+// appearing rather than shifting. The centroid moves measurably (observed x: 12->21->27->
+// 35->47 over consecutive frames as a front approached), it's O(pixels) instead of
+// O(pixels x search area), and it degrades to null instead of a bogus zero.
+function motionCentroid(prev, cur) {
+  const a = centroid(prev), b = centroid(cur);
+  if (!a || !b) return null;
+  return { vx: b.x - a.x, vy: b.y - a.y };
+}
+
+// (kept for reference / small-window use) Block-matching motion estimate.
 function motion(prev, cur) {
-  const size = RADIUS * 2 + 1, SEARCH = 12, c = RADIUS;
+  // SEARCH covers the displacement over MOTION_SPAN frames (not one), so it must be wide
+  // enough for a fast front: ~30px at z7 ≈ 90km/h over 3x10min.
+  const size = RADIUS * 2 + 1, SEARCH = 40, c = RADIUS;
+  const HALF = RADIUS - SEARCH - 2;       // correlation patch, kept inside the search range
+  const STEP = 3;                         // subsample: 4x cheaper on a Zero 2W, same answer
   let best = Infinity, bvx = 0, bvy = 0;
   for (let dy = -SEARCH; dy <= SEARCH; dy++) {
     for (let dx = -SEARCH; dx <= SEARCH; dx++) {
-      let err = 0, n = 0;
-      for (let y = c - 18; y <= c + 18; y += 2) {
-        for (let x = c - 18; x <= c + 18; x += 2) {
+      let err = 0, n = 0, overlap = 0;
+      // Correlate over most of the window so a front that has moved 20-40px still has
+      // material to match against (scaled to RADIUS, not a fixed ±18px).
+      for (let y = c - HALF; y <= c + HALF; y += STEP) {
+        for (let x = c - HALF; x <= c + HALF; x += STEP) {
           const a = at(cur, x, y), b = at(prev, x - dx, y - dy);
+          if (a > 0 || b > 0) overlap++;
           err += Math.abs(a - b); n++;
         }
       }
-      err = err / n + 0.004 * Math.hypot(dx, dy);   // prefer the smaller motion on ties
+      // With little echo in view any shift matches equally well, so a plain mean would pick
+      // an arbitrary (often zero) vector. Require some echo, and keep the tie-break gentle
+      // relative to the longer baseline.
+      if (overlap < 12) continue;
+      err = err / n + 0.0015 * Math.hypot(dx, dy);   // prefer the smaller motion on ties
       if (err < best) { best = err; bvx = dx; bvy = dy; }
     }
   }
@@ -156,10 +204,20 @@ export async function radarNowcast(env, lat, lon) {
     for (const f of use) fields.push(await sampleField(env.host, f.path, gx, gy));
     const last = fields[fields.length - 1];
     if (!last) return null;
-    // newest valid pair for motion
-    let prev = null;
-    for (let i = fields.length - 2; i >= 0; i--) if (fields[i]) { prev = fields[i]; break; }
-    const { vx, vy } = prev ? motion(prev, last) : { vx: 0, vy: 0 };
+    // Motion over a MOTION_SPAN-frame baseline (see the constant): find the newest valid
+    // field that far back, measure the total displacement, then divide down to per-frame.
+    let prev = null, span = 0;
+    for (let i = fields.length - 1 - MOTION_SPAN; i >= 0; i--) {
+      if (fields[i]) { prev = fields[i]; span = (fields.length - 1) - i; break; }
+    }
+    if (!prev) {   // not enough history for a long baseline - fall back to the newest pair
+      for (let i = fields.length - 2; i >= 0; i--) {
+        if (fields[i]) { prev = fields[i]; span = (fields.length - 1) - i; break; }
+      }
+    }
+    const raw = prev ? motionCentroid(prev, last) : null;
+    const vx = raw && span ? raw.vx / span : 0;
+    const vy = raw && span ? raw.vy / span : 0;
 
     const stepMin = Math.max(
       5, Math.round((use[use.length - 1].time - use[use.length - 2].time) / 60) || 10);
@@ -167,8 +225,21 @@ export async function radarNowcast(env, lat, lon) {
     const raining = levelOf(nowV) !== "none";
 
     // Advect: intensity expected at the point in k steps = what's k*velocity upwind now.
+    // Take the strongest value in a small patch around that upwind point, not a single
+    // pixel - a front rarely tracks exactly along the centroid vector, and one stray
+    // transparent pixel shouldn't read as "no rain".
+    const upwindAt = (k) => {
+      const px = c - vx * k, py = c - vy * k;
+      let peak = 0;
+      for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          peak = Math.max(peak, at(last, Math.round(px + dx), Math.round(py + dy)));
+        }
+      }
+      return peak;
+    };
     const future = [nowV];
-    for (let k = 1; k <= HORIZON; k++) future.push(at(last, Math.round(c - vx * k), Math.round(c - vy * k)));
+    for (let k = 1; k <= HORIZON; k++) future.push(upwindAt(k));
 
     let startIdx = null, stopIdx = null;
     if (raining) {

@@ -23,7 +23,10 @@ export const radar = {
       maxZoom: 18, className: "basemap-lite",     // lightened via CSS so it isn't near-black
     }).addTo(map);
     // marker + range rings (10/25/50 km) for a sense of distance
-    L.circleMarker(center, { radius: 6, color: "#4ea3ff", fillOpacity: 1 }).addTo(map);
+    // Green, not blue: the rain echo itself is blue/cyan, so a blue dot vanished into it.
+    // White outline keeps it readable over heavy (orange/yellow) echo too.
+    L.circleMarker(center, { radius: 6, color: "#ffffff", weight: 2,
+      fillColor: "#22dd55", fillOpacity: 1 }).addTo(map);
     [10000, 25000, 50000].forEach((m) =>
       L.circle(center, { radius: m, color: "#4ea3ff", weight: 1, opacity: 0.25, fill: false }).addTo(map));
     this._map = map;
