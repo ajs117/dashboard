@@ -95,7 +95,11 @@ html, body {
 .app-tile .tile-sub { font-size: 12.5px; font-weight: 600; color: var(--muted);
   max-width: 96%; text-align: center; line-height: 1.15; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.app-tile .tile-sub:empty { display: none; }
+/* Keep an empty sub-line occupying its row rather than collapsing: a tile whose sub-text
+   hasn't loaded yet would otherwise centre only two items and sit lower than its
+   neighbours' three-line layout. Invisible but space-reserving. */
+.app-tile .tile-sub:empty { visibility: hidden; }
+.app-tile .tile-sub:empty::before { content: "\00a0"; }
 .app-tile .tile-badge { position: absolute; top: 8px; right: 10px; background: var(--bad);
   color: #fff; min-width: 20px; height: 20px; border-radius: 10px; font-size: 13px;
   font-weight: 800; display: flex; align-items: center; justify-content: center; padding: 0 5px; }

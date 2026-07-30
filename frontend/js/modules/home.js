@@ -330,6 +330,15 @@ export const home = {
         const d = env.data || {};
         const active = (d.cameras || []).filter((c) => c.active);
         this._cams = (d.enabled ? active : []);
+        // Give the Cameras tile a sub-line like every other tile has. Without it the
+        // (:empty -> display:none) rule left only two items to centre, so its icon and
+        // label sat ~10px lower than the neighbours' three-line layout.
+        const sub = el.querySelector('.tile-sub[data-route="ring"]');
+        if (sub) {
+          const total = (d.cameras || []).length;
+          sub.textContent = !d.enabled ? "not set up"
+            : total ? `${active.length}/${total} on` : "no cameras";
+        }
         if (!this._cams.length) renderCamTile(el, [], -1);   // back to the plain tile
       } catch (e) { /* leave the tile on its normal face */ }
     };
@@ -378,14 +387,15 @@ export const home = {
     const tiles = Array.from(el.querySelectorAll(".app-tile"));
     if (!tiles.length) return;
     const track = el.querySelector("#apps-track");
-    let holdTimer = null, stepTimer = null, cycling = false, idx = -1, startedOn = -1;
+    let holdTimer = null, stepTimer = null, giveUpTimer = null;
+    let cycling = false, idx = -1, startedOn = -1;
 
     const paint = () => tiles.forEach((t, i) => t.classList.toggle("cycle-on", i === idx));
     const clearPaint = () => tiles.forEach((t) => t.classList.remove("cycle-on"));
 
     const stop = () => {
-      clearTimeout(holdTimer); clearInterval(stepTimer);
-      holdTimer = stepTimer = null;
+      clearTimeout(holdTimer); clearInterval(stepTimer); clearTimeout(giveUpTimer);
+      holdTimer = stepTimer = giveUpTimer = null;
       cycling = false; idx = -1; startedOn = -1;
       clearPaint();
       if (track) track.classList.remove("cycling");
@@ -399,6 +409,10 @@ export const home = {
       idx = startedOn >= 0 ? startedOn : 0;
       paint();
       stepTimer = setInterval(() => { idx = (idx + 1) % tiles.length; paint(); }, STEP_MS);
+      // Safety: if this panel drops the pointerup entirely (it sometimes does), don't leave
+      // the highlight marching forever - give up after a couple of full laps.
+      clearTimeout(giveUpTimer);
+      giveUpTimer = setTimeout(stop, STEP_MS * tiles.length * 2 + 2000);
     };
 
     const onDown = (e) => {
@@ -429,17 +443,22 @@ export const home = {
     zone.addEventListener("pointerdown", (e) => {
       if (e.target.closest && e.target.closest(".car-arrow")) return;   // let arrows page
       e.preventDefault();
+      // Capture the pointer: this panel reports a DIFFERENT coordinate on release, which
+      // otherwise fires pointerleave/pointercancel mid-hold and killed the cycle before it
+      // could start. With capture, every event for this touch comes back to us.
+      try { zone.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
       onDown(e);
     });
     zone.addEventListener("pointerup", (e) => {
       if (e.target.closest && e.target.closest(".car-arrow")) return;
       e.preventDefault();
+      try { zone.releasePointerCapture(e.pointerId); } catch (err) { /* already gone */ }
       onUp(e);
     });
-    // A finger sliding off the strip, or the browser stealing the pointer, must not leave
-    // the cycle running forever.
-    zone.addEventListener("pointercancel", stop);
-    zone.addEventListener("pointerleave", () => { if (!cycling) stop(); });
+    // Only a genuine cancel (browser stealing the touch) aborts. NOT pointerleave: with a
+    // drifting panel the pointer "leaves" constantly during a hold, and treating that as an
+    // abort is why the hold never engaged and it just opened whatever was pressed.
+    zone.addEventListener("pointercancel", () => stop());
     this._launcherStop = stop;
   },
 
