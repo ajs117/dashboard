@@ -192,11 +192,15 @@ async def _fetch_snapshot(ring: Any, cam: Any, max_age: float) -> bytes | None:
         return None
     resp = await ring.async_query(SNAPSHOT_ENDPOINT.format(dev_id))
     content = getattr(resp, "content", None)
-    return content or None
+    if not content:
+        return None
+    # Pair the bytes with Ring's own capture time so the UI can show how old the frame
+    # really is (not merely when we asked for it).
+    return (content, latest or time.time())
 
 
-async def snapshot(cfg: dict[str, Any], cam_id: str) -> bytes | None:
-    """JPEG bytes for one camera, or None if it's disabled/offline/failed."""
+async def snapshot(cfg: dict[str, Any], cam_id: str) -> tuple[bytes, float] | None:
+    """(JPEG bytes, capture unix time), or None if disabled/offline/failed."""
     if not _enabled(cfg):
         return None
     r = cfg.get("ring") or {}

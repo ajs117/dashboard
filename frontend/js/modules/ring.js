@@ -3,6 +3,14 @@
 // requests while you're on the home screen.
 import { esc } from "../util.js";
 
+// "updated Ns/Nm ago" for the snapshot age reported by the backend.
+function agoText(sec) {
+  if (sec < 10) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const m = Math.round(sec / 60);
+  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+}
+
 export const ring = {
   _timer: null, _cams: [], _interval: 30000, _sel: null,
 
@@ -61,7 +69,7 @@ export const ring = {
         </div>
         <div class="rc-foot">
           <span class="rc-name">${esc(c.name)}</span>
-          ${c.battery != null ? `<span class="rc-bat">${c.battery}%</span>` : ""}
+          <span class="rc-age" data-age="${esc(c.id)}">${off ? "off" : "…"}</span>
         </div>
       </div>`;
     }).join("");
@@ -81,23 +89,49 @@ export const ring = {
 
   // Cache-bust each fetch so WebKit doesn't reuse the previous frame; the backend caches
   // upstream for ring.interval_seconds, so this can't stampede Ring.
-  _refreshImages(el) {
+  // Fetch each snapshot via fetch() (not a bare <img src>) so we can read the
+  // X-Snapshot-Age header and show how old the frame actually is — a wired camera's
+  // battery "100%" told you nothing, whereas staleness is the thing you want to trust.
+  async _refreshImages(el) {
     const stamp = Date.now();
-    el.querySelectorAll("img[data-cam]").forEach((img) => {
-      const src = `/api/ring/snapshot/${encodeURIComponent(img.dataset.cam)}?t=${stamp}`;
-      // Decode first, then swap: assigning .src directly blanks the visible frame while
-      // the new one downloads (a couple of seconds via Ring), which flashes black.
-      const pre = new Image();
-      pre.onload = () => { img.src = src; img.classList.add("ready"); };
-      pre.onerror = () => {
+    const imgs = Array.from(el.querySelectorAll("img[data-cam]"));
+    for (const img of imgs) {
+      const id = img.dataset.cam;
+      const url = `/api/ring/snapshot/${encodeURIComponent(id)}?t=${stamp}`;
+      const ageEl = el.querySelector(`.rc-age[data-age="${id}"]`);
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(String(res.status));
+        const age = parseInt(res.headers.get("X-Snapshot-Age") || "", 10);
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        // Decode before swapping so the visible frame never blanks mid-refresh.
+        await new Promise((done) => {
+          const pre = new Image();
+          pre.onload = pre.onerror = done;
+          pre.src = objUrl;
+        });
+        if (img.dataset.objurl) URL.revokeObjectURL(img.dataset.objurl);  // free the old one
+        img.dataset.objurl = objUrl;
+        img.src = objUrl;
+        img.classList.add("ready");
+        if (ageEl) ageEl.textContent = Number.isFinite(age) ? agoText(age) : "now";
+      } catch (e) {
+        if (ageEl) ageEl.textContent = "no image";
         const wrap = img.closest(".rc-img");
         if (wrap && !wrap.querySelector(".rc-off") && !img.classList.contains("ready")) {
           wrap.innerHTML = `<div class="rc-off">No image</div>`;
         }
-      };
-      pre.src = src;
-    });
+      }
+    }
   },
 
-  unmount() { clearInterval(this._timer); },
+  unmount() {
+    clearInterval(this._timer);
+    // Blob URLs are not garbage-collected while referenced - release them explicitly or
+    // every refresh leaks a JPEG for as long as the page lives (512MB Pi).
+    document.querySelectorAll("img[data-objurl]").forEach((img) => {
+      URL.revokeObjectURL(img.dataset.objurl);
+    });
+  },
 };

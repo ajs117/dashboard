@@ -87,13 +87,11 @@ export const home = {
           <button class="car-arrow" id="apps-prev" aria-label="previous">‹</button>
           <div class="car-track" id="apps-track">
             ${APPS.map((a) => `
-              <button class="app-tile" data-route="${a.route}">
-                ${a.route === "ring" ? `<span class="ring-face">` : ""}
-                <span class="ico">${a.ico}</span><span class="lbl">${a.label}</span>
-                <span class="tile-sub" data-route="${a.route}"></span>
-                ${a.route === "ring" ? `</span><span class="ring-prev" hidden></span>` : ""}
-                <span class="tile-badge" hidden>!</span>
-              </button>`).join("")}
+              <button class="app-tile${a.route === "ring" ? " app-tile-ring" : ""}" data-route="${a.route}">${
+                a.route === "ring" ? `<span class="ring-face">` : ""
+              }<span class="ico">${a.ico}</span><span class="lbl">${a.label}</span><span class="tile-sub" data-route="${a.route}"></span>${
+                a.route === "ring" ? `</span><span class="ring-prev" hidden></span>` : ""
+              }<span class="tile-badge" hidden>!</span></button>`).join("")}
           </div>
           <button class="car-arrow" id="apps-next" aria-label="next">›</button>
         </div>
@@ -110,11 +108,13 @@ export const home = {
           <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
-    // Launch on first contact (pointerdown): the cheap panel reports an accurate press
-    // coordinate but often jumps on release, so firing on release lands on the wrong tile.
-    // Tiles all fit on screen now, so we don't need release-based scroll detection.
-    el.querySelectorAll(".app-tile").forEach((b) =>
-      ctx.tap(b, () => ctx.go(b.dataset.route)));
+    // --- Launcher input: tap OR hold-to-cycle -------------------------------------------
+    // The touch panel reports a press coordinate that drifts, so hitting a specific small
+    // tile is unreliable (the big isolated Back button always works). Hold-to-cycle removes
+    // the need for an accurate position entirely, like an old phone's T9 cycling: press
+    // anywhere, the selection walks along the tiles with a highlight, release to open.
+    // A quick accurate tap still works normally, so nothing is lost.
+    this._setupLauncher(el, ctx);
     const track = el.querySelector("#apps-track");
     const prevA = el.querySelector("#apps-prev"), nextA = el.querySelector("#apps-next");
     ctx.tap(prevA, () => track.scrollBy({ left: -track.clientWidth * 0.7, behavior: "smooth" }));
@@ -367,6 +367,82 @@ export const home = {
     this._startTicker(el);
   },
 
+  // Launcher input. Two ways to open an app, so a good press is fast and a bad one still
+  // works:
+  //   * quick tap on a tile        -> opens that tile (unchanged behaviour)
+  //   * press and HOLD (anywhere)  -> highlight starts cycling the tiles; release to open
+  // HOLD_MS is the grace period before cycling kicks in, so a normal tap never triggers it.
+  _setupLauncher(el, ctx) {
+    const HOLD_MS = 400;        // press longer than this = you're cycling, not tapping
+    const STEP_MS = 700;        // dwell per tile while held - slow enough to read and react
+    const tiles = Array.from(el.querySelectorAll(".app-tile"));
+    if (!tiles.length) return;
+    const track = el.querySelector("#apps-track");
+    let holdTimer = null, stepTimer = null, cycling = false, idx = -1, startedOn = -1;
+
+    const paint = () => tiles.forEach((t, i) => t.classList.toggle("cycle-on", i === idx));
+    const clearPaint = () => tiles.forEach((t) => t.classList.remove("cycle-on"));
+
+    const stop = () => {
+      clearTimeout(holdTimer); clearInterval(stepTimer);
+      holdTimer = stepTimer = null;
+      cycling = false; idx = -1; startedOn = -1;
+      clearPaint();
+      if (track) track.classList.remove("cycling");
+    };
+
+    const beginCycle = () => {
+      cycling = true;
+      if (track) track.classList.add("cycling");
+      // Start from the tile actually under the finger when known, so a press that landed
+      // correctly needs no extra cycling; otherwise start at the first tile.
+      idx = startedOn >= 0 ? startedOn : 0;
+      paint();
+      stepTimer = setInterval(() => { idx = (idx + 1) % tiles.length; paint(); }, STEP_MS);
+    };
+
+    const onDown = (e) => {
+      if (cycling) return;
+      const tile = e.target.closest ? e.target.closest(".app-tile") : null;
+      startedOn = tile ? tiles.indexOf(tile) : -1;
+      holdTimer = setTimeout(beginCycle, HOLD_MS);
+    };
+
+    const onUp = (e) => {
+      if (cycling) {
+        const chosen = idx;
+        stop();
+        if (chosen >= 0 && tiles[chosen]) ctx.go(tiles[chosen].dataset.route);
+        return;
+      }
+      // Released before the hold threshold: treat as a plain tap on whatever we pressed.
+      clearTimeout(holdTimer); holdTimer = null;
+      const wasOn = startedOn;
+      startedOn = -1;
+      if (wasOn >= 0 && tiles[wasOn]) ctx.go(tiles[wasOn].dataset.route);
+    };
+
+    // Bind on the carousel so a press that lands BETWEEN tiles still starts a cycle -
+    // that's the whole point when the reported coordinate is unreliable.
+    const zone = el.querySelector(".app-carousel") || track;
+    if (!zone) return;
+    zone.addEventListener("pointerdown", (e) => {
+      if (e.target.closest && e.target.closest(".car-arrow")) return;   // let arrows page
+      e.preventDefault();
+      onDown(e);
+    });
+    zone.addEventListener("pointerup", (e) => {
+      if (e.target.closest && e.target.closest(".car-arrow")) return;
+      e.preventDefault();
+      onUp(e);
+    });
+    // A finger sliding off the strip, or the browser stealing the pointer, must not leave
+    // the cycle running forever.
+    zone.addEventListener("pointercancel", stop);
+    zone.addEventListener("pointerleave", () => { if (!cycling) stop(); });
+    this._launcherStop = stop;
+  },
+
   _rebuildFeed() {
     // ~80% news, ~20% facts: one fact after every 4 headlines (cycling the day's fact set).
     const news = (this._news || []).map((t) => ({ kind: "news", text: t }));
@@ -451,6 +527,7 @@ export const home = {
     clearInterval(this._homeTimer);
     clearInterval(this._camTimer);
     clearInterval(this._camListTimer);
+    if (this._launcherStop) this._launcherStop();   // kill any in-flight cycle timers
     cancelAnimationFrame(this._tkRAF);
   },
 };

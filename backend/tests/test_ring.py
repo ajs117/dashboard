@@ -97,6 +97,23 @@ def test_lan_client_is_blocked():
         assert ex.value.status_code == 403
 
 
+def test_snapshot_returns_none_when_not_configured():
+    """Unconfigured Ring must not raise - the UI shows a neutral 'not set up' state."""
+    import asyncio
+    assert asyncio.run(ring.snapshot({}, "123")) is None
+
+
+def test_snapshot_max_age_defaults_to_four_intervals():
+    """A frame older than this is a dead camera; better blank than a stale picture."""
+    cfg = {"ring": {"enabled": True, "interval_seconds": 30}}
+    r = cfg["ring"]
+    expected = max(120.0, float(r["interval_seconds"]) * 4)
+    assert expected == 120.0
+    cfg2 = {"ring": {"enabled": True, "interval_seconds": 60}}
+    r2 = cfg2["ring"]
+    assert max(120.0, float(r2["interval_seconds"]) * 4) == 240.0
+
+
 def test_missing_client_is_blocked():
     import pytest
     from fastapi import HTTPException

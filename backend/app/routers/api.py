@@ -1,6 +1,7 @@
 """Data endpoints. Each is cached server-side and serves last-good data if upstream fails."""
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -163,11 +164,17 @@ async def get_ring_snapshot(cam_id: str, request: Request) -> Response:
     env = await cache.get_or_fetch(
         f"ring_snap:{cam_id}", ttl, lambda: ring.snapshot(cfg, cam_id)
     )
-    img = env.get("data")
-    if not img:
+    got = env.get("data")
+    if not got:
         raise HTTPException(status_code=404, detail="no snapshot (camera off or offline)")
-    return Response(content=img, media_type="image/jpeg",
-                    headers={"Cache-Control": "no-store"})
+    img, captured_at = got
+    # Expose Ring's own capture time so the UI can show a real "updated Ns ago" instead of
+    # a meaningless battery percentage. Age is computed here to avoid clock skew in the
+    # browser, and the header is CORS-safelisted for same-origin reads anyway.
+    return Response(content=img, media_type="image/jpeg", headers={
+        "Cache-Control": "no-store",
+        "X-Snapshot-Age": str(max(0, int(time.time() - captured_at))),
+    })
 
 
 @router.get("/govee/devices")

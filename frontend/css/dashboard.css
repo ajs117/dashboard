@@ -84,6 +84,12 @@ html, body {
   transition: transform .08s, background .12s;
 }
 .app-tile:active { transform: scale(.97); background: var(--panel-2); }
+/* Hold-to-cycle: while a press is held the selection walks the tiles. The highlight has to
+   be unmistakable from across a desk, hence the accent ring + lift rather than a tint. */
+.app-tile.cycle-on { background: var(--panel-2); border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0,0,0,.45); transform: scale(1.04); }
+.car-track.cycling .app-tile { opacity: .55; transition: opacity .12s; }
+.car-track.cycling .app-tile.cycle-on { opacity: 1; }
 .app-tile .ico { font-size: 40px; }
 .app-tile .lbl { font-size: 17px; font-weight: 600; }
 .app-tile .tile-sub { font-size: 12.5px; font-weight: 600; color: var(--muted);
@@ -161,8 +167,11 @@ html, body {
    normal icon/label face and a camera snapshot. The preview is absolutely positioned so
    the image NEVER contributes to layout - otherwise it would stretch the flex tile and
    knock the other launcher tiles out of alignment. */
-/* Fill the tile and centre exactly like a plain tile's own flex children would, so the
-   nesting doesn't push the icon/label lower than the other launcher tiles. */
+/* The ring tile's content lives in an absolutely-positioned .ring-face so the preview image
+   can't affect layout. That means the tile itself has no in-flow children to centre, so the
+   face must position itself - and the tile must not try to centre leftover whitespace/badge
+   nodes, which is what pushed the icon and label lower than the other four tiles. */
+.app-tile-ring { display: block; }
 .app-tile .ring-face { position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 6px; padding: 14px 8px; }
 .app-tile .ring-face[hidden] { display: none; }
@@ -197,7 +206,10 @@ html, body {
   padding: 6px 10px; font-size: 14px; }
 .ring-cam .rc-name { font-weight: 600; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
-.ring-cam .rc-bat { color: var(--muted); font-size: 12px; }
+/* Snapshot freshness - the thing you actually want to know (replaced a wired camera's
+   meaningless "100%" battery reading). */
+.ring-cam .rc-age { color: var(--muted); font-size: 12px; white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
 
 /* Stocks ticker (full-width scrolling bar) */
 .ticker-bar { grid-column: 1 / span 2; grid-row: 5; background: var(--panel);
