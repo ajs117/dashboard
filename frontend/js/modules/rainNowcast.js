@@ -33,6 +33,11 @@ const MOTION_SPAN = 3;
 const lon2x = (lon) => ((lon + 180) / 360) * 2 ** Z;
 const lat2y = (lat) =>
   ((1 - Math.asinh(Math.tan((lat * Math.PI) / 180)) / Math.PI) / 2) * 2 ** Z;
+// Inverse of the above (global pixels -> lat/lon), so we can hand the map a real coordinate
+// for "the echo that reaches you in an hour".
+const x2lon = (x) => (x / TILE / 2 ** Z) * 360 - 180;
+const y2lat = (y) =>
+  (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / TILE / 2 ** Z))) * 180) / Math.PI;
 
 // RGBA -> rain intensity scalar in [0,1].
 //
@@ -253,7 +258,62 @@ export async function radarNowcast(env, lat, lon) {
     if (vx || vy) fromCompass = compass16((Math.atan2(-vx, vy) * 180) / Math.PI);
 
     const timeline = future.map((v) => ({ mm: Math.round(v * 100) / 100, prob: null }));
+
+    // Where is the echo that reaches us in ~1 hour? It's sitting `velocity * 60min` upwind
+    // right now, so convert that pixel offset back to a real coordinate for the map to
+    // draw a line to. Only meaningful if the field is actually moving and there IS echo
+    // there - otherwise the line would point confidently at empty sky.
+    let inbound = null;
+    if (vx || vy) {
+      // Point at the cell that will actually REACH you: the first future step with rain in
+      // it, within the next hour. (Using a fixed 60-minute point instead meant that when
+      // rain was due in 20 minutes the hour mark was clear sky, so no line was drawn at all
+      // - technically correct, useless in practice.) If it's already raining, look ahead to
+      // whatever is next in the hour.
+      const kMax = Math.max(1, Math.round(60 / stepMin));
+      let kTarget = null;
+      for (let k = 1; k <= Math.min(kMax, HORIZON); k++) {
+        if (levelOf(future[k]) !== "none") { kTarget = k; break; }
+      }
+      if (kTarget == null && raining) kTarget = kMax;    // raining now: show the hour mark
+      if (kTarget == null) kTarget = 0;                  // nothing inbound -> skipped below
+      const sx = gx - vx * kTarget, sy = gy - vy * kTarget;
+      const intensityThere = kTarget
+        ? at(last, Math.round(c - vx * kTarget), Math.round(c - vy * kTarget)) : 0;
+      inbound = {
+        lat: y2lat(sy),
+        lon: x2lon(sx),
+        minutes: Math.round(kTarget * stepMin),
+        level: kTarget ? levelOf(intensityThere) : "none",
+        // px/frame -> km/h, for a human-readable speed on the map label.
+        speed_kmh: Math.round(
+          (Math.hypot(vx, vy) * (156543.03392 * Math.cos((lat * Math.PI) / 180) / 2 ** Z))
+          / 1000 * (60 / stepMin)),
+      };
+    }
+
+    // Movement of the radar field itself, reported whenever we can measure it - it is a
+    // "which way is the weather going" indicator, so it must NOT be gated on rain being
+    // present or inbound. Direction is the direction of travel (where cells are heading).
+    const kHour = 60 / stepMin;
+    const motionOut = (vx || vy)
+      ? {
+        dx: vx, dy: vy,                       // px/frame at z7; screen y is down
+        // Where the weather that reaches us in an hour is sitting RIGHT NOW: one hour of
+        // travel upwind. Lets the map draw a line whose tip actually means "60 minutes
+        // away", rather than an arbitrary fixed length.
+        hour_lat: y2lat(gy - vy * kHour),
+        hour_lon: x2lon(gx - vx * kHour),
+        bearing: compass16((Math.atan2(vx, -vy) * 180) / Math.PI),
+        speed_kmh: Math.round(
+          (Math.hypot(vx, vy) * (156543.03392 * Math.cos((lat * Math.PI) / 180) / 2 ** Z))
+          / 1000 * (60 / stepMin)),
+      }
+      : null;
+
     return {
+      inbound,
+      motion: motionOut,
       raining_now: raining,
       level: raining ? levelOf(nowV) : levelOf(Math.max(...future)),
       status: raining ? "raining" : (startIdx != null ? "starting" : "dry"),

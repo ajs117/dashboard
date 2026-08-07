@@ -69,7 +69,7 @@ html, body {
 
 /* App carousel (paged: swipe/scroll, arrows page, tap opens) — full-width bottom row */
 .app-carousel { grid-column: 1 / span 2; grid-row: 4; display: flex; align-items: stretch;
-  gap: 8px; min-height: 0; position: relative; }   /* relative: anchors .hold-hint */
+  gap: 8px; min-height: 0; position: relative; }
 .car-arrow { flex: 0 0 auto; width: 38px; border: 1px solid var(--line); background: var(--panel);
   color: var(--fg); border-radius: 12px; font-size: 26px; line-height: 1; cursor: pointer; }
 .car-arrow:active { background: var(--panel-2); }
@@ -85,33 +85,10 @@ html, body {
   transition: transform .08s, background .12s;
 }
 .app-tile:active { transform: scale(.97); background: var(--panel-2); }
-/* The whole strip is one press target now; the tiles are display only. */
-.app-tile { pointer-events: none; }
-.tap-hint { position: absolute; top: -1px; right: 6px; font-size: 11px; color: var(--muted);
-  pointer-events: none; }
-
-/* Full-screen app menu: full-width rows, because a drifting X coordinate can't miss one.
-   This is the target size that already works elsewhere (Back button, aircraft rows). */
-.app-menu { position: absolute; inset: 0; z-index: 900; background: rgba(13,17,23,.97);
-  display: flex; align-items: center; justify-content: center; }
-.app-menu[hidden] { display: none; }
-.am-inner { width: 92%; max-width: 900px; display: flex; flex-direction: column; gap: 8px; }
-.am-head { font-size: 15px; color: var(--muted); font-weight: 600; padding-left: 4px; }
-.am-row { display: flex; align-items: center; gap: 18px; width: 100%; min-height: 72px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-  color: var(--fg); padding: 0 26px; font-size: 26px; font-weight: 600; text-align: left;
-  opacity: .45; transition: opacity .12s, transform .12s; }
-/* The scanning highlight. This is the ONLY thing that says what a press will open, so it
-   has to be unmissable from across a desk. */
-.am-row.on { opacity: 1; background: var(--panel-2); border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent), 0 8px 22px rgba(0,0,0,.5); transform: scale(1.02); }
-.am-ico { font-size: 38px; line-height: 1; flex: 0 0 auto; }
-.am-lbl { flex: 0 0 auto; }
-.am-sub { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
-.am-sub:empty { display: none; }
-.am-cancel { justify-content: center; min-height: 56px; font-size: 19px;
-  color: var(--muted); }
+/* touch-action:none stops WebKit synthesising its own fast-click/scroll gestures on the
+   strip. Keeping it (with preventDefault on the press) is what made tap accuracy reliable
+   on this panel - without it WebKit gesture handling competed with ours. */
+.app-carousel, .car-track, .app-tile { touch-action: none; }
 .app-tile .ico { font-size: 40px; }
 .app-tile .lbl { font-size: 17px; font-weight: 600; }
 .app-tile .tile-sub { font-size: 12.5px; font-weight: 600; color: var(--muted);

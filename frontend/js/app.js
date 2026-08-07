@@ -21,9 +21,27 @@ export async function api(path) {
 // cheap touch panel's coordinate drifts during the hold, and preventDefault to suppress
 // the synthesized click so we don't "ghost-tap" whatever lands under the point next.
 // Only use on non-scrolling targets (tiles, Back) — preventDefault would block panning.
+// WebKit follows every touch with a synthesized COMPATIBILITY MOUSE event, and on this
+// panel that second event carries a drifted coordinate. Both reached tap(), so a single
+// press fired twice on two different targets: the first opened the tile you touched, the
+// second immediately navigated somewhere else - the "I pressed Trains and got another
+// module" symptom, and the reason a press on the app menu selected a random row.
+// preventDefault on pointerdown does NOT suppress those compatibility events, so filter by
+// pointerType instead. Once a genuine touch has been seen we ignore mouse pointers
+// entirely; the flag keeps a real mouse working for desktop development.
+let sawTouch = false;
+function isRealPress(e) {
+  if (e.pointerType === "touch") { sawTouch = true; return true; }
+  return !sawTouch;
+}
+
 export function tap(el, fn) {
   if (!el) return;
-  el.addEventListener("pointerdown", (e) => { e.preventDefault(); fn(e); });
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (!isRealPress(e)) return;
+    fn(e);
+  });
 }
 
 // Tap for rows inside a SCROLLABLE list: fire on pointerup only if the finger didn't
@@ -66,11 +84,19 @@ document.addEventListener("pointerdown", (e) => {
 const view = () => document.getElementById("view");
 const backBtn = () => document.getElementById("back-btn");
 
+// Rate-limit: a duplicated press could otherwise navigate twice in quick succession, the
+// second hop landing on whatever the drifted coordinate hit. First navigation wins, so you
+// always get the target you actually pressed.
+let lastNavAt = 0;
+
 async function navigate(route) {
   if (!MODULES[route]) route = "home";
   // Ignore duplicate navigation to the same route. WPE/WebKit can fire an extra
   // hashchange on load, which would otherwise clear #view mid-mount.
   if (route === currentRoute && current) return;
+  const nowMs = Date.now();
+  if (nowMs - lastNavAt < 500) return;
+  lastNavAt = nowMs;
   currentRoute = route;
   navGuardUntil = Date.now() + NAV_GUARD_MS;   // ignore the touch that triggered this nav
   const myToken = ++navToken;          // invalidates any in-flight async work

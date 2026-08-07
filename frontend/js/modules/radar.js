@@ -4,7 +4,7 @@ import { esc } from "../util.js";
 import { radarNowcast } from "./rainNowcast.js";
 
 export const radar = {
-  _map: null, _layer: null, _refresh: null, _fade: null,
+  _map: null, _layer: null, _refresh: null, _fade: null, _inbound: null,
 
   async mount(el, ctx) {
     el.innerHTML = `
@@ -32,6 +32,50 @@ export const radar = {
     this._map = map;
     setTimeout(() => map.invalidateSize(), 50);
 
+    // Draw a line from your location to the echo that reaches you in ~1 hour, so you can
+    // Movement indicator: an arrow at your location showing which way the radar field is
+    // travelling. Always drawn whenever motion can be measured - it is not a rain alert, so
+    // it stays on screen when it's dry. Falls back to the model's wind direction if the
+    // radar field is too sparse to track.
+    this._drawInbound = (from, motion, windDirDeg) => {
+      if (this._inbound) { this._inbound.forEach((l) => this._map.removeLayer(l)); this._inbound = null; }
+      const map = this._map;
+      if (!map) return;
+      // The line points at where the weather is coming FROM - i.e. look along it to see
+      // what is heading your way. (Pointing along the direction of travel instead put it
+      // on the opposite side of the sky from the incoming weather.)
+      let ux, uy;
+      if (motion && (motion.dx || motion.dy)) {
+        const len = Math.hypot(motion.dx, motion.dy) || 1;
+        ux = -motion.dx / len; uy = -motion.dy / len;      // upwind = against the motion
+      } else if (windDirDeg != null) {
+        // Met convention: wind_dir already IS the direction it comes from, so use it as-is.
+        const rad = (windDirDeg * Math.PI) / 180;
+        ux = Math.sin(rad); uy = -Math.cos(rad);
+      } else {
+        return;                       // genuinely nothing to indicate
+      }
+      const colour = "#22dd55";       // green, matching the location dot
+      const pFrom = map.latLngToLayerPoint(from);
+      // The tip sits exactly where the weather that reaches you in an hour is right now, so
+      // the length is to scale - no clamping.
+      let drawLen = 90;               // only used when all we have is a wind direction
+      if (motion && motion.hour_lat != null) {
+        const pHour = map.latLngToLayerPoint([motion.hour_lat, motion.hour_lon]);
+        drawLen = Math.hypot(pHour.x - pFrom.x, pHour.y - pFrom.y);
+      }
+      // Start clear of the location dot so the arrow reads as separate from it.
+      const start = map.layerPointToLatLng(L.point(pFrom.x + ux * 16, pFrom.y + uy * 16));
+      const endPt = L.point(pFrom.x + ux * drawLen, pFrom.y + uy * drawLen);
+      const end = map.layerPointToLatLng(endPt);
+
+      // Plain line, no arrowhead.
+      const shaft = L.polyline([start, end], {
+        color: colour, weight: 4, opacity: 0.95,
+      }).addTo(map);
+      this._inbound = [shaft];
+    };
+
     const load = async () => {
       let env = null;
       try {
@@ -51,6 +95,10 @@ export const radar = {
           data = { ...rn, location: (fc.data && fc.data.location) || ctx.config?.location?.label || "" };
           stale = false;
         }
+        // Outside the `if (rn)`: the movement arrow is always shown, so it must survive the
+        // nowcast returning nothing (dry / too little echo to track) by falling back to the
+        // model's wind direction.
+        this._drawInbound(center, rn && rn.motion, fc.data && fc.data.wind_dir);
         const panel = el.querySelector("#rain-panel");
         if (panel) this._renderPanel(panel, data, stale);
       } catch (e) {
@@ -138,5 +186,6 @@ export const radar = {
     clearTimeout(this._fade);
     if (this._map) { this._map.remove(); this._map = null; }
     this._layer = null;
+    this._inbound = null;      // layers died with the map; drop the refs
   },
 };

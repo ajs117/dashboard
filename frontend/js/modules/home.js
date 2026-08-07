@@ -94,9 +94,7 @@ export const home = {
               }<span class="tile-badge" hidden>!</span></button>`).join("")}
           </div>
           <button class="car-arrow" id="apps-next" aria-label="next">›</button>
-          <div class="tap-hint">press anywhere for apps</div>
         </div>
-        <div class="app-menu" id="app-menu" hidden></div>
 
         <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
 
@@ -110,14 +108,22 @@ export const home = {
           <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
-    // --- Launcher input: press anywhere, selection driven by TIME ----------------------
-    // See _setupLauncher. Position is irrelevant now, so the paging arrows are gone: every
-    // app is reachable from the scanning list, and an arrow would just be another small
-    // target competing for the same unreliable coordinate.
-    this._setupLauncher(el, ctx);
+    // Plain tap-to-open. Touch accuracy came good once a single press stopped being
+    // delivered twice (see isRealPress in app.js: WebKit's synthesized compatibility mouse
+    // event carried a drifted coordinate and fired tap() a second time). The tile you touch
+    // is now the tile that opens, so no selection gesture is needed.
+    el.querySelectorAll(".app-tile").forEach((b) =>
+      ctx.tap(b, () => ctx.go(b.dataset.route)));
+    const track = el.querySelector("#apps-track");
     const prevA = el.querySelector("#apps-prev"), nextA = el.querySelector("#apps-next");
-    if (prevA) prevA.hidden = true;
-    if (nextA) nextA.hidden = true;
+    ctx.tap(prevA, () => track.scrollBy({ left: -track.clientWidth * 0.7, behavior: "smooth" }));
+    ctx.tap(nextA, () => track.scrollBy({ left: track.clientWidth * 0.7, behavior: "smooth" }));
+    // Only show the paging arrows if the tiles actually overflow (with 5 they fit, so
+    // every app is reachable with a single tap - no scrolling on the iffy touch panel).
+    requestAnimationFrame(() => {
+      const overflow = track.scrollWidth > track.clientWidth + 4;
+      prevA.hidden = nextA.hidden = !overflow;
+    });
 
     const bigTime = el.querySelector("#big-time");
     const bigDate = el.querySelector("#big-date");
@@ -372,84 +378,6 @@ export const home = {
   // Full-screen app menu. The strip at the bottom is one big press target: pressing
   // anywhere on it opens this. Rows are full-width and ~90px tall, so a drifting X
   // coordinate cannot land on the wrong one - the failure mode we actually have.
-  // Launcher: SCANNING selection. Deliberately depends on TIME, not on where you press.
-  //
-  // This panel reports a press reliably but its coordinate drifts, so every design that
-  // asked "which thing is under the finger?" failed - narrow tiles opened their neighbour,
-  // and a menu opened on pointerdown then had the same touch's bounce select a row.
-  //
-  // So position is now irrelevant:
-  //   press anywhere  -> the app list appears and a highlight walks down it on a timer
-  //   press anywhere  -> opens whatever is highlighted at that moment
-  // The only thing that matters is WHEN you press. A lockout after each accepted press
-  // swallows the panel's phantom double-fires, which is what broke the previous attempt.
-  _setupLauncher(el, ctx) {
-    const STEP_MS = 1600;      // dwell per row - time to read it and react
-    const LOCKOUT_MS = 800;    // ignore all input right after a press (kills bounce)
-    const LAPS = 3;            // give up after this many passes with no selection
-    const menu = el.querySelector("#app-menu");
-    if (!menu) return;
-    const items = [...APPS, { route: null, ico: "✕", label: "Cancel" }];
-
-    // Arrival guard: Back navigates on pointerdown, so the home page mounts while the
-    // finger is still down and the panel's bounce lands here - which was opening the menu
-    // every time you came back from an app. Swallow input for a moment after arriving.
-    const ARRIVE_MS = 1000;
-    let armed = false, idx = 0, steps = 0, until = Date.now() + ARRIVE_MS;
-    let stepTimer = null;
-
-    const paint = () => {
-      menu.querySelectorAll(".am-row").forEach((r, i) =>
-        r.classList.toggle("on", i === idx));
-    };
-
-    const disarm = () => {
-      clearInterval(stepTimer); stepTimer = null;
-      armed = false; menu.hidden = true;
-    };
-
-    const arm = () => {
-      menu.innerHTML = `<div class="am-inner">
-          <div class="am-head">Press again to open the highlighted app</div>
-          ${items.map((a) => `
-            <div class="am-row${a.route ? "" : " am-cancel"}">
-              <span class="am-ico">${a.ico}</span><span class="am-lbl">${a.label}</span>
-              <span class="am-sub" data-route="${a.route || ""}"></span>
-            </div>`).join("")}
-        </div>`;
-      // Carry the live sub-lines (parcels, delays, rain) across so the menu is as
-      // informative as the strip it replaces.
-      menu.querySelectorAll(".am-sub").forEach((s) => {
-        const from = s.dataset.route
-          && el.querySelector(`.tile-sub[data-route="${s.dataset.route}"]`);
-        if (from) s.textContent = from.textContent;
-      });
-      idx = 0; steps = 0;
-      armed = true; menu.hidden = false;
-      paint();
-      stepTimer = setInterval(() => {
-        idx = (idx + 1) % items.length;
-        steps += 1;
-        if (steps >= items.length * LAPS) { disarm(); return; }
-        paint();
-      }, STEP_MS);
-    };
-
-    const onPress = () => {
-      const now = Date.now();
-      if (now < until) return;            // inside the lockout: a bounce, not a real press
-      until = now + LOCKOUT_MS;
-      if (!armed) { arm(); return; }
-      const chosen = items[idx];
-      disarm();
-      if (chosen && chosen.route) ctx.go(chosen.route);
-    };
-
-    // One listener for the whole home view: press anywhere at all.
-    const root = el.querySelector(".home") || el;
-    root.addEventListener("pointerdown", (e) => { e.preventDefault(); onPress(); });
-    this._launcherStop = disarm;
-  },
 
 
 
@@ -537,7 +465,6 @@ export const home = {
     clearInterval(this._homeTimer);
     clearInterval(this._camTimer);
     clearInterval(this._camListTimer);
-    if (this._launcherStop) this._launcherStop();   // kill any in-flight cycle timers
     cancelAnimationFrame(this._tkRAF);
   },
 };
