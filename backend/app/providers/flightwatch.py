@@ -165,8 +165,23 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
             entry["route"] = await route_provider.fetch(cs)
         except Exception:  # noqa: BLE001 - route is a nicety, never fail the panel for it
             entry["route"] = None
+        # Query the ICAO callsign the aircraft actually transmits (CPA255), not the IATA
+        # flight number people quote (CX255) - the latter never matches ADS-B. Try both,
+        # ICAO first, so either form can be typed on the remote page.
+        rt0 = entry.get("route") or {}
+        candidates = []
+        for c in (rt0.get("callsign_icao"), cs, rt0.get("callsign_iata")):
+            c = normalise(c or "")
+            if c and c not in candidates:
+                candidates.append(c)
+        entry["query_callsign"] = candidates[0] if candidates else cs
         try:
-            ac = await _lookup(cs)
+            ac = None
+            for cand in candidates:
+                ac = await _lookup(cand)
+                if ac:
+                    entry["query_callsign"] = cand
+                    break
         except Exception as exc:  # noqa: BLE001
             entry["status"] = "error"
             entry["error"] = str(exc)[:120]

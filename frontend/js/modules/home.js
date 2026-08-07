@@ -94,8 +94,9 @@ export const home = {
               }<span class="tile-badge" hidden>!</span></button>`).join("")}
           </div>
           <button class="car-arrow" id="apps-next" aria-label="next">›</button>
-          <div class="hold-hint" id="hold-hint">release to open</div>
+          <div class="tap-hint">tap for apps</div>
         </div>
+        <div class="app-menu" id="app-menu" hidden></div>
 
         <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
 
@@ -109,13 +110,13 @@ export const home = {
           <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
-    // --- Launcher input: hold-to-cycle ONLY ---------------------------------------------
-    // The touch panel reports a press coordinate that drifts, so hitting a specific small
-    // tile is unreliable (the big isolated Back button always works). Hold-to-cycle removes
-    // the need for an accurate position entirely, like an old phone's T9 cycling: press
-    // anywhere on the strip, the selection walks the tiles with a highlight, release to open.
-    // Plain taps are deliberately DISABLED here - they opened the wrong app too often, and
-    // while both paths existed the tap always won the race before a hold could engage.
+    // --- Launcher input --------------------------------------------------------------
+    // Everything on this panel that works reliably is a WIDE target (the Back button, the
+    // aircraft list rows); everything that misses is narrow. The press coordinate drifts
+    // horizontally, so a 190px-wide tile gets hit-and-miss while a full-width row doesn't.
+    // So: pressing anywhere on the strip opens a full-screen menu of full-width rows, and
+    // you pick from that. Two taps, but both on targets too big to miss - and it uses the
+    // ordinary tap path that already works everywhere else, with no hold timing at all.
     this._setupLauncher(el, ctx);
     const track = el.querySelector("#apps-track");
     const prevA = el.querySelector("#apps-prev"), nextA = el.querySelector("#apps-next");
@@ -378,140 +379,45 @@ export const home = {
     this._startTicker(el);
   },
 
-  // Launcher input. Two ways to open an app, so a good press is fast and a bad one still
-  // works:
-  //   * quick tap on a tile        -> opens that tile (unchanged behaviour)
-  //   * press and HOLD (anywhere)  -> highlight starts cycling the tiles; release to open
-  // HOLD_MS is the grace period before cycling kicks in, so a normal tap never triggers it.
+  // Full-screen app menu. The strip at the bottom is one big press target: pressing
+  // anywhere on it opens this. Rows are full-width and ~90px tall, so a drifting X
+  // coordinate cannot land on the wrong one - the failure mode we actually have.
   _setupLauncher(el, ctx) {
-    // No tap-to-open any more, so there's nothing to disambiguate from: start cycling almost
-    // immediately on contact. The first tile is highlighted at once, so releasing straight
-    // away still opens something predictable.
-    const HOLD_MS = 120;
-    const STEP_MS = 1400;       // dwell per tile - slow enough to read the label and react
-    // This panel emits SPURIOUS pointerup events while the finger is still down. Committing
-    // on the first release opened whatever happened to be highlighted at that instant - the
-    // "I just get a random one" symptom. So a release is only committed once the pointer has
-    // stayed up for RELEASE_MS; a fresh contact inside that window is treated as the same
-    // continuous hold and resumes cycling from where it was.
-    const RELEASE_MS = 450;
-    let tiles = [];
-    const track = el.querySelector("#apps-track");
-    let holdTimer = null, stepTimer = null, giveUpTimer = null, releaseTimer = null;
-    let cycling = false, idx = -1, startedOn = -1;
+    const zone = el.querySelector(".app-carousel");
+    const menu = el.querySelector("#app-menu");
+    if (!zone || !menu) return;
 
-    // Order by on-screen position, NOT DOM order: .car-track is a scrollable flex row, so a
-    // scrolled track makes document order disagree with what you see left-to-right. Computed
-    // at cycle start, not at mount, because layout may not have settled when we mount.
-    const orderTiles = () => {
-      tiles = Array.from(el.querySelectorAll(".app-tile"))
-        .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    const close = () => { menu.hidden = true; };
+    const open = () => {
+      menu.innerHTML = `<div class="am-inner">
+          <div class="am-head">Open an app</div>
+          ${APPS.map((a) => `
+            <button class="am-row" data-route="${a.route}">
+              <span class="am-ico">${a.ico}</span><span class="am-lbl">${a.label}</span>
+              <span class="am-sub" data-route="${a.route}"></span>
+            </button>`).join("")}
+          <button class="am-row am-cancel">Cancel</button>
+        </div>`;
+      // Carry the live sub-lines (parcels, delays, rain) over to the menu rows so the
+      // menu is as informative as the strip.
+      menu.querySelectorAll(".am-sub").forEach((s) => {
+        const src = el.querySelector(`.tile-sub[data-route="${s.dataset.route}"]`);
+        if (src) s.textContent = src.textContent;
+      });
+      menu.querySelectorAll(".am-row").forEach((b) => ctx.tap(b, () => {
+        close();
+        if (b.dataset.route) ctx.go(b.dataset.route);
+      }));
+      menu.hidden = false;
     };
 
-    const paint = () => tiles.forEach((t, i) => t.classList.toggle("cycle-on", i === idx));
-    const clearPaint = () => tiles.forEach((t) => t.classList.remove("cycle-on"));
-
-    const stop = () => {
-      clearTimeout(holdTimer); clearInterval(stepTimer); clearTimeout(giveUpTimer);
-      clearTimeout(releaseTimer);
-      holdTimer = stepTimer = giveUpTimer = releaseTimer = null;
-      cycling = false; idx = -1; startedOn = -1;
-      clearPaint();
-      if (track) track.classList.remove("cycling", "paused");
-      const hint = el.querySelector("#hold-hint");
-      if (hint) { hint.classList.remove("on"); hint.textContent = "release to open"; }
-    };
-
-    const runStep = () => {
-      clearInterval(stepTimer);
-      stepTimer = setInterval(() => { idx = (idx + 1) % tiles.length; paint(); }, STEP_MS);
-    };
-
-    const beginCycle = () => {
-      orderTiles();
-      if (!tiles.length) return;
-      cycling = true;
-      if (track) track.classList.add("cycling");
-      const hint = el.querySelector("#hold-hint");
-      if (hint) hint.classList.add("on");
-      // Start from the tile actually under the finger when known, so a press that landed
-      // correctly needs no extra cycling; otherwise start at the first tile.
-      idx = startedOn >= 0 && startedOn < tiles.length ? startedOn : 0;
-      paint();
-      runStep();
-      // Safety: if this panel drops the pointerup entirely (it sometimes does), don't leave
-      // the highlight marching forever - give up after a couple of full laps.
-      clearTimeout(giveUpTimer);
-      giveUpTimer = setTimeout(stop, STEP_MS * tiles.length * 2 + 4000);
-    };
-
-    const onDown = (e) => {
-      // A new contact during the release window means the previous "up" was a spurious
-      // bounce from the panel, not a real release: cancel the pending open and keep going.
-      if (releaseTimer) {
-        clearTimeout(releaseTimer); releaseTimer = null;
-        if (track) track.classList.remove("paused");
-        const hint = el.querySelector("#hold-hint");
-        if (hint) hint.textContent = "release to open";
-        runStep();                     // resume from the SAME tile - no jump
-        return;
-      }
-      if (cycling) return;
-      const tile = e.target.closest ? e.target.closest(".app-tile") : null;
-      const list = tiles.length ? tiles : Array.from(el.querySelectorAll(".app-tile"));
-      startedOn = tile ? list.indexOf(tile) : -1;
-      holdTimer = setTimeout(beginCycle, HOLD_MS);
-    };
-
-    const onUp = () => {
-      if (cycling) {
-        // Freeze the highlight so you can SEE what you're about to get, then commit only if
-        // the finger really stayed off. A bounce re-enters via onDown and cancels this.
-        clearInterval(stepTimer); stepTimer = null;
-        if (track) track.classList.add("paused");
-        const hint = el.querySelector("#hold-hint");
-        if (hint) hint.textContent = "opening…";
-        clearTimeout(releaseTimer);
-        releaseTimer = setTimeout(() => {
-          const chosen = idx;
-          stop();
-          if (chosen >= 0 && tiles[chosen]) ctx.go(tiles[chosen].dataset.route);
-        }, RELEASE_MS);
-        return;
-      }
-      // Released before the cycle started: do NOTHING. Plain taps are deliberately disabled
-      // on the launcher - this panel's press coordinate drifts, so a tap opened the wrong
-      // app often enough to be useless, and having both paths meant the tap always won the
-      // race before the hold could engage. Hold-to-cycle is the only way in now.
-      clearTimeout(holdTimer); holdTimer = null;
-      startedOn = -1;
-    };
-
-    // Bind on the carousel so a press that lands BETWEEN tiles still starts a cycle -
-    // that's the whole point when the reported coordinate is unreliable.
-    const zone = el.querySelector(".app-carousel") || track;
-    if (!zone) return;
-    zone.addEventListener("pointerdown", (e) => {
-      if (e.target.closest && e.target.closest(".car-arrow")) return;   // let arrows page
-      e.preventDefault();
-      // Capture the pointer: this panel reports a DIFFERENT coordinate on release, which
-      // otherwise fires pointerleave/pointercancel mid-hold and killed the cycle before it
-      // could start. With capture, every event for this touch comes back to us.
-      try { zone.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
-      onDown(e);
-    });
-    zone.addEventListener("pointerup", (e) => {
+    ctx.tap(zone, (e) => {
       if (e.target.closest && e.target.closest(".car-arrow")) return;
-      e.preventDefault();
-      try { zone.releasePointerCapture(e.pointerId); } catch (err) { /* already gone */ }
-      onUp(e);
+      open();
     });
-    // Only a genuine cancel (browser stealing the touch) aborts. NOT pointerleave: with a
-    // drifting panel the pointer "leaves" constantly during a hold, and treating that as an
-    // abort is why the hold never engaged and it just opened whatever was pressed.
-    zone.addEventListener("pointercancel", () => stop());
-    this._launcherStop = stop;
+    this._launcherStop = close;
   },
+
 
   _rebuildFeed() {
     // ~80% news, ~20% facts: one fact after every 4 headlines (cycling the day's fact set).

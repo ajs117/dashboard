@@ -55,6 +55,11 @@ async def fetch(callsign: str) -> dict[str, Any] | None:
     airline = fr.get("airline") or {}
     return {
         "callsign": fr.get("callsign") or callsign,
+        # Aircraft broadcast the ICAO callsign (CPA255), never the IATA flight number
+        # (CX255) people actually quote - so a lookup by the number off a boarding pass
+        # would never match. Carry both so callers can query the right one.
+        "callsign_icao": fr.get("callsign_icao"),
+        "callsign_iata": fr.get("callsign_iata"),
         "airline": airline.get("name"),
         "origin": _airport(fr.get("origin")),
         "destination": _airport(fr.get("destination")),

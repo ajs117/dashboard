@@ -148,15 +148,51 @@ export const aircraft = {
       } else if (f.status === "error") {
         line = `<span class="muted">lookup failed</span>`;
       } else {
-        line = `<span class="muted">not airborne yet — waiting for it to depart</span>`;
+        // Can't distinguish "still on stand" from "flying but no receiver hears it", so
+        // don't claim either. ADS-B here is volunteer-fed: thin over China/Siberia, dense
+        // over Europe, so a long-haul often only appears for the last leg.
+        line = `<span class="muted">no ADS-B contact${
+          f.query_callsign ? ` for ${esc(f.query_callsign)}` : ""} right now`
+          + `<br>coverage is thin outside Europe — it should appear as it gets closer</span>`;
       }
-      return `<div class="wf">
+      // Full detail block, shown when you tap the flight.
+      const det = [];
+      if (f.registration) det.push(["Registration", f.registration]);
+      if (f.type_name || f.type) det.push(["Aircraft", f.type_name || f.type]);
+      if (f.altitude != null) det.push(["Altitude", `${Math.round(f.altitude).toLocaleString()} ft`]);
+      if (f.speed != null) det.push(["Ground speed", `${Math.round(f.speed)} kt`]);
+      if (f.heading != null) det.push(["Heading", `${Math.round(f.heading)}°`]);
+      if (f.lat != null) det.push(["Position", `${f.lat.toFixed(2)}, ${f.lon.toFixed(2)}`]);
+      if (f.distance_mi != null) det.push(["From you", `${f.distance_mi} mi ${f.compass || ""}`]);
+      if (f.flown_nm != null) det.push(["Flown", `${f.flown_nm} nm`]);
+      if (f.remaining_nm != null) det.push(["Remaining", `${f.remaining_nm} nm`]);
+      if (o.name) det.push(["From", o.name]);
+      if (d.name) det.push(["To", d.name]);
+      if (rt.airline) det.push(["Airline", rt.airline]);
+      const detHtml = det.length
+        ? det.map(([k, v]) => `<div class="wf-d"><span>${esc(k)}</span><b>${esc(String(v))}</b></div>`).join("")
+        : `<div class="wf-d muted">No live detail yet</div>`;
+      return `<div class="wf" data-cs="${esc(f.callsign)}"
+                   ${f.lat != null ? `data-lat="${f.lat}" data-lon="${f.lon}"` : ""}>
         <div class="wf-top"><span class="wf-cs">${esc(f.callsign)}</span>
           <span class="wf-leg">${leg}</span></div>
         ${where ? `<div class="wf-where">${where}</div>` : ""}
         <div class="wf-line">${line}</div>${bar}
+        <div class="wf-details">${detHtml}</div>
       </div>`;
     }).join("");
+
+    // Tap a watched flight -> zoom the map to it and reveal the full detail block.
+    box.querySelectorAll(".wf").forEach((row) => {
+      row.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        const open = row.classList.toggle("open");
+        const lat = parseFloat(row.dataset.lat), lon = parseFloat(row.dataset.lon);
+        if (open && this._map && Number.isFinite(lat) && Number.isFinite(lon)) {
+          this._map.setView([lat, lon], 6);
+        }
+      });
+    });
   },
 
   // Aircraft currently inside the map viewport (nearest-first, as the backend orders them).
