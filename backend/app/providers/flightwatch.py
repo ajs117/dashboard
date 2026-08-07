@@ -21,8 +21,16 @@ from typing import Any
 from . import RateLimiter, client
 from .geo import KM_PER_NM, MI_PER_KM, bearing, compass16, haversine_km
 
-_BASE = "https://api.airplanes.live/v2/callsign"
-_limiter = RateLimiter(min_interval=1.05)     # airplanes.live asks for <=1 req/sec
+# Several independent community networks expose the SAME readsb "re-api" shape, so we can
+# union their coverage for free just by trying each in turn. They have different feeders,
+# so one often hears an aircraft the others don't - which is the whole point. Verified all
+# three answer identically for a flight they can all see.
+_SOURCES = [
+    ("airplanes.live", "https://api.airplanes.live/v2/callsign"),
+    ("adsb.lol", "https://api.adsb.lol/v2/callsign"),
+    ("adsb.fi", "https://opendata.adsb.fi/api/v2/callsign"),
+]
+_limiter = RateLimiter(min_interval=1.05)     # these ask for <=1 req/sec
 
 # Last known fix per callsign, so a flight that drops out of ADS-B coverage mid-ocean still
 # shows where it was rather than vanishing. Bounded: a handful of watched flights only.
@@ -120,13 +128,24 @@ def _shape(ac: dict[str, Any], home_lat: float, home_lon: float) -> dict[str, An
     return out
 
 
-async def _lookup(callsign: str) -> dict[str, Any] | None:
-    await _limiter.wait()
-    resp = await client().get(f"{_BASE}/{callsign}")
-    resp.raise_for_status()
-    for ac in (resp.json() or {}).get("ac") or []:
-        if ac.get("lat") is not None and ac.get("lon") is not None:
-            return ac
+async def _lookup(callsign: str) -> tuple[dict[str, Any], str] | None:
+    """First network that can actually hear this callsign wins.
+
+    Each source is tried in turn and a single failure never aborts the search - one being
+    down or answering with junk (adsb.lol has been seen returning a non-JSON body) must not
+    cost us a hit from the others.
+    """
+    for name, base in _SOURCES:
+        try:
+            await _limiter.wait()
+            resp = await client().get(f"{base}/{callsign}")
+            if resp.status_code != 200:
+                continue
+            for ac in (resp.json() or {}).get("ac") or []:
+                if ac.get("lat") is not None and ac.get("lon") is not None:
+                    return ac, name
+        except Exception:  # noqa: BLE001 - try the next network
+            continue
     return None
 
 
@@ -178,8 +197,9 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
         try:
             ac = None
             for cand in candidates:
-                ac = await _lookup(cand)
-                if ac:
+                found = await _lookup(cand)
+                if found:
+                    ac, entry["source"] = found
                     entry["query_callsign"] = cand
                     break
         except Exception as exc:  # noqa: BLE001
