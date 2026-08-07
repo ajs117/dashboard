@@ -50,6 +50,19 @@ export function setStale(stale, msg) {
 let current = null;
 let currentRoute = null;
 let navToken = 0;
+
+// --- Post-navigation input guard ------------------------------------------------------
+// Navigation happens on pointerdown (this touch panel's release coordinate is unreliable),
+// so the new page mounts while the finger is still down. The panel then emits bounce
+// events that land on whatever just appeared - pressing Back would arrive home and
+// immediately open the app menu, and vice versa. Swallow input briefly after any
+// navigation, in ONE place, so no module has to defend itself.
+const NAV_GUARD_MS = 900;
+let navGuardUntil = 0;
+document.addEventListener("pointerdown", (e) => {
+  if (Date.now() < navGuardUntil) { e.stopPropagation(); e.preventDefault(); }
+}, true);   // capture: runs before any module's own handler
+
 const view = () => document.getElementById("view");
 const backBtn = () => document.getElementById("back-btn");
 
@@ -59,6 +72,7 @@ async function navigate(route) {
   // hashchange on load, which would otherwise clear #view mid-mount.
   if (route === currentRoute && current) return;
   currentRoute = route;
+  navGuardUntil = Date.now() + NAV_GUARD_MS;   // ignore the touch that triggered this nav
   const myToken = ++navToken;          // invalidates any in-flight async work
   if (current && current.unmount) {
     try { current.unmount(); } catch (e) { /* ignore */ }

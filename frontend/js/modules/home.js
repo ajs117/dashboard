@@ -391,7 +391,11 @@ export const home = {
     if (!menu) return;
     const items = [...APPS, { route: null, ico: "✕", label: "Cancel" }];
 
-    let armed = false, idx = 0, steps = 0, until = 0;
+    // Arrival guard: Back navigates on pointerdown, so the home page mounts while the
+    // finger is still down and the panel's bounce lands here - which was opening the menu
+    // every time you came back from an app. Swallow input for a moment after arriving.
+    const ARRIVE_MS = 1000;
+    let armed = false, idx = 0, steps = 0, until = Date.now() + ARRIVE_MS;
     let stepTimer = null;
 
     const paint = () => {
