@@ -97,11 +97,14 @@ html, body {
 .app-menu[hidden] { display: none; }
 .am-inner { width: 92%; max-width: 900px; display: flex; flex-direction: column; gap: 8px; }
 .am-head { font-size: 15px; color: var(--muted); font-weight: 600; padding-left: 4px; }
-.am-row { display: flex; align-items: center; gap: 18px; width: 100%; min-height: 78px;
+.am-row { display: flex; align-items: center; gap: 18px; width: 100%; min-height: 72px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
   color: var(--fg); padding: 0 26px; font-size: 26px; font-weight: 600; text-align: left;
-  cursor: pointer; }
-.am-row:active { background: var(--panel-2); border-color: var(--accent); }
+  opacity: .45; transition: opacity .12s, transform .12s; }
+/* The scanning highlight. This is the ONLY thing that says what a press will open, so it
+   has to be unmissable from across a desk. */
+.am-row.on { opacity: 1; background: var(--panel-2); border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent), 0 8px 22px rgba(0,0,0,.5); transform: scale(1.02); }
 .am-ico { font-size: 38px; line-height: 1; flex: 0 0 auto; }
 .am-lbl { flex: 0 0 auto; }
 .am-sub { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--muted);
