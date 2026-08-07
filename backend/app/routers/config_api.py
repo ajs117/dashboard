@@ -43,6 +43,8 @@ class LocationIn(BaseModel):
     timezone: str | None = None
 
 
+
+
 @router.get("/config")
 async def get_config() -> dict[str, Any]:
     return config.public()

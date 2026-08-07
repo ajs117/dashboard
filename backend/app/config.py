@@ -103,4 +103,6 @@ def public() -> dict[str, Any]:
         "trains": {k: v for k, v in trains.items() if k != "token"},
         "aircraft": d.get("aircraft", {}),
         "refresh": d.get("refresh", {}),
+        "ring": {"interval_seconds": (d.get("ring") or {}).get("interval_seconds", 30)},
+        "watch_flights": d.get("watch_flights", []),
     }

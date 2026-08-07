@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from .. import config
 from ..cache import cache
 from ..providers import (
-    aircraft, air_quality, ecoflow, facts, govee, news, photos, radar,
+    aircraft, air_quality, ecoflow, facts, flightwatch, govee, news, photos, radar,
     radar_forecast, ring, route, stocks, trains, weather,
 )
 
@@ -128,6 +128,14 @@ async def get_indoor() -> dict[str, Any]:
     cfg = config.get()
     ttl = _ttls().get("indoor", 60)
     return await cache.get_or_fetch("indoor_room", ttl, lambda: govee.fetch(cfg, "govee_indoor"))
+
+
+@router.get("/flights/watch")
+async def get_watched_flights() -> dict[str, Any]:
+    """Live status of the watched flights (config: watch_flights)."""
+    cfg = config.get()
+    ttl = _ttls().get("flightwatch", 30)
+    return await cache.get_or_fetch("flightwatch", ttl, lambda: flightwatch.fetch(cfg))
 
 
 _LOOPBACK = {"127.0.0.1", "::1", "localhost"}

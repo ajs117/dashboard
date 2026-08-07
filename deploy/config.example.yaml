@@ -54,6 +54,14 @@ aircraft:
   radius_nm: 50          # search radius around location
   max_results: 12        # nearest N returned to the UI
 
+# --- Watched flights (e.g. family travelling) ---
+# Callsigns are looked up GLOBALLY, so a flight anywhere in the world shows here - not just
+# ones near you. The panel shows route, progress and a rough ETA. Manage this list from the
+# phone remote page (Watch flights) rather than editing by hand.
+# Note: airplanes.live is fed by volunteer ADS-B receivers, so mid-ocean stretches often
+# have no coverage; the panel says "no signal for N min" rather than pretending it landed.
+watch_flights: []        # e.g. ["CX255", "BA15"]
+
 # --- Radar (RainViewer) ---
 radar:
   forecast_zoom: 7       # tile zoom to sample rain over your location (RainViewer caps at 7)
@@ -147,6 +155,7 @@ cache:
   air: 1800             # air quality / UV / pollen (Open-Meteo)
   solar: 60             # EcoFlow solar output
   ring_cameras: 300     # Ring camera list (snapshots use ring.interval_seconds)
+  flightwatch: 30       # watched-flight positions
 
 # --- Frontend refresh intervals (seconds) ---
 refresh:

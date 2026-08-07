@@ -95,6 +95,10 @@ html, body {
   box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0,0,0,.45); transform: scale(1.04); }
 .car-track.cycling .app-tile { opacity: .55; transition: opacity .12s; }
 .car-track.cycling .app-tile.cycle-on { opacity: 1; }
+/* Finger lifted: the highlight freezes and turns green while we wait out the release
+   window, so you can see what you're about to open before it commits. */
+.car-track.paused .app-tile.cycle-on { border-color: var(--good);
+  box-shadow: 0 0 0 3px var(--good), 0 6px 18px rgba(0,0,0,.45); }
 /* Shown only while a hold is cycling, so the interaction explains itself. */
 .hold-hint { position: absolute; top: -2px; left: 50%; transform: translateX(-50%);
   background: var(--accent); color: #04111f; font-size: 12px; font-weight: 700;
@@ -244,6 +248,23 @@ html, body {
 .ac-layout { display: grid; grid-template-columns: 1fr 340px; height: 100%; }
 .ac-side { background: var(--panel); border-left: 1px solid var(--line);
            display: flex; flex-direction: column; overflow: hidden; }
+/* Watched flights (family travelling): pinned above the photo so they're the first thing
+   you see on the aircraft page, regardless of what's near the map view. */
+.ac-watch { border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.ac-watch[hidden] { display: none; }
+.wf { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); }
+.wf:last-child { border-bottom: none; }
+.wf-top { display: flex; align-items: baseline; gap: 8px; }
+.wf-cs { font-size: 17px; font-weight: 700; color: var(--accent); }
+.wf-leg { font-size: 14px; font-weight: 600; }
+.wf-where { font-size: 11.5px; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.wf-line { font-size: 12.5px; margin-top: 2px; }
+.wf-bar { height: 6px; border-radius: 3px; background: var(--line); margin-top: 6px;
+  overflow: hidden; }
+.wf-bar i { display: block; height: 100%; background: var(--accent); }
+.wf-eta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
 .ac-photo { height: 180px; background: var(--panel-2) center/cover no-repeat;
             display: flex; align-items: center; justify-content: center;
             color: var(--muted); position: relative; flex-shrink: 0; }

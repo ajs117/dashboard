@@ -134,6 +134,9 @@ async function loadSettings() {
       <button class="sm" id="add-clock">+ Add clock</button></div>
     <div class="card"><h2 style="margin-top:0">Countdowns</h2><div id="cd-list"></div>
       <button class="sm" id="add-cd">+ Add countdown</button></div>
+    <div class="card"><h2 style="margin-top:0">Watch flights <span class="muted">(callsign, e.g. CX255 — shows route, progress and ETA on the Aircraft page)</span></h2>
+      <div id="wf-list"></div>
+      <button class="sm" id="add-wf">+ Watch a flight</button></div>
     <div class="card"><h2 style="margin-top:0">Sensor / API keys <span class="muted">(blank = keep)</span></h2>
       <label>Govee API key</label><input id="s-gkey" placeholder="${g.api_key?'•••• (set)':''}">
       <div class="two"><div><label>Govee SKU</label><input id="s-gsku" value="${esc(g.sku)}"></div>
@@ -169,6 +172,13 @@ async function loadSettings() {
     d.querySelector("button").onclick=()=>d.remove(); cdList.appendChild(d); };
   cds.forEach(addCd); $("#add-cd").onclick=()=>addCd();
 
+  const wfList = $("#wf-list");
+  const addWf = (cs="") => { const d=document.createElement("div"); d.className="row"; d.style.marginBottom="6px";
+    d.innerHTML=`<div><input class="w-cs" value="${esc(cs)}" placeholder="CX255" autocapitalize="characters"></div>
+      <div class="x"><button class="sm" type="button">✕</button></div>`;
+    d.querySelector("button").onclick=()=>d.remove(); wfList.appendChild(d); };
+  (cfg.watch_flights||[]).forEach(addWf); $("#add-wf").onclick=()=>addWf();
+
 }
 
 $("#save").onclick = async () => {
@@ -180,10 +190,15 @@ $("#save").onclick = async () => {
     emoji:r.querySelector(".d-emoji").value.trim()||"⏳", label:r.querySelector(".d-label").value.trim(),
     date:r.querySelector(".d-date").value.trim()
   })).filter(c=>c.label && c.date);
+  // Callsigns: upper-cased and de-duped; each one costs an upstream lookup per refresh,
+  // so cap the list rather than let it grow until the panel crawls.
+  const wf = [...new Set([...document.querySelectorAll("#wf-list .w-cs")]
+    .map(i => i.value.trim().toUpperCase().replace(/\s+/g, ""))
+    .filter(c => /^[A-Z0-9]{2,10}$/.test(c)))].slice(0, 6);
   const patch = {
     location:{ label:val("s-label"), lat:parseFloat(val("s-lat")), lon:parseFloat(val("s-lon")), timezone:val("s-tz") },
     units:{ temperature:val("s-temp"), wind:val("s-wind") },
-    world_clocks: clocks, countdowns: cds,
+    world_clocks: clocks, countdowns: cds, watch_flights: wf,
     govee:{ api_key:val("s-gkey"), sku:val("s-gsku"), device:val("s-gdev") },
     govee_indoor:{ sku:val("s-gisku"), device:val("s-gidev"), enabled: !!(val("s-gisku") && val("s-gidev")) },
     ecoflow:{ access_key:val("s-efa"), secret_key:val("s-efs"), serial:val("s-efsn") },

@@ -389,64 +389,102 @@ export const home = {
     // away still opens something predictable.
     const HOLD_MS = 120;
     const STEP_MS = 1400;       // dwell per tile - slow enough to read the label and react
-    // Order by on-screen position, NOT DOM order: .car-track is a scrollable flex row, so a
-    // scrolled track makes document order disagree with what you see left-to-right, and the
-    // highlight appeared to jump around at random.
-    const tiles = Array.from(el.querySelectorAll(".app-tile"))
-      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
-    if (!tiles.length) return;
+    // This panel emits SPURIOUS pointerup events while the finger is still down. Committing
+    // on the first release opened whatever happened to be highlighted at that instant - the
+    // "I just get a random one" symptom. So a release is only committed once the pointer has
+    // stayed up for RELEASE_MS; a fresh contact inside that window is treated as the same
+    // continuous hold and resumes cycling from where it was.
+    const RELEASE_MS = 450;
+    let tiles = [];
     const track = el.querySelector("#apps-track");
-    let holdTimer = null, stepTimer = null, giveUpTimer = null;
+    let holdTimer = null, stepTimer = null, giveUpTimer = null, releaseTimer = null;
     let cycling = false, idx = -1, startedOn = -1;
+
+    // Order by on-screen position, NOT DOM order: .car-track is a scrollable flex row, so a
+    // scrolled track makes document order disagree with what you see left-to-right. Computed
+    // at cycle start, not at mount, because layout may not have settled when we mount.
+    const orderTiles = () => {
+      tiles = Array.from(el.querySelectorAll(".app-tile"))
+        .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    };
 
     const paint = () => tiles.forEach((t, i) => t.classList.toggle("cycle-on", i === idx));
     const clearPaint = () => tiles.forEach((t) => t.classList.remove("cycle-on"));
 
     const stop = () => {
       clearTimeout(holdTimer); clearInterval(stepTimer); clearTimeout(giveUpTimer);
-      holdTimer = stepTimer = giveUpTimer = null;
+      clearTimeout(releaseTimer);
+      holdTimer = stepTimer = giveUpTimer = releaseTimer = null;
       cycling = false; idx = -1; startedOn = -1;
       clearPaint();
-      if (track) track.classList.remove("cycling");
+      if (track) track.classList.remove("cycling", "paused");
       const hint = el.querySelector("#hold-hint");
-      if (hint) hint.classList.remove("on");
+      if (hint) { hint.classList.remove("on"); hint.textContent = "release to open"; }
+    };
+
+    const runStep = () => {
+      clearInterval(stepTimer);
+      stepTimer = setInterval(() => { idx = (idx + 1) % tiles.length; paint(); }, STEP_MS);
     };
 
     const beginCycle = () => {
+      orderTiles();
+      if (!tiles.length) return;
       cycling = true;
       if (track) track.classList.add("cycling");
       const hint = el.querySelector("#hold-hint");
       if (hint) hint.classList.add("on");
       // Start from the tile actually under the finger when known, so a press that landed
       // correctly needs no extra cycling; otherwise start at the first tile.
-      idx = startedOn >= 0 ? startedOn : 0;
+      idx = startedOn >= 0 && startedOn < tiles.length ? startedOn : 0;
       paint();
-      stepTimer = setInterval(() => { idx = (idx + 1) % tiles.length; paint(); }, STEP_MS);
+      runStep();
       // Safety: if this panel drops the pointerup entirely (it sometimes does), don't leave
       // the highlight marching forever - give up after a couple of full laps.
       clearTimeout(giveUpTimer);
-      giveUpTimer = setTimeout(stop, STEP_MS * tiles.length * 2 + 2000);
+      giveUpTimer = setTimeout(stop, STEP_MS * tiles.length * 2 + 4000);
     };
 
     const onDown = (e) => {
+      // A new contact during the release window means the previous "up" was a spurious
+      // bounce from the panel, not a real release: cancel the pending open and keep going.
+      if (releaseTimer) {
+        clearTimeout(releaseTimer); releaseTimer = null;
+        if (track) track.classList.remove("paused");
+        const hint = el.querySelector("#hold-hint");
+        if (hint) hint.textContent = "release to open";
+        runStep();                     // resume from the SAME tile - no jump
+        return;
+      }
       if (cycling) return;
       const tile = e.target.closest ? e.target.closest(".app-tile") : null;
-      startedOn = tile ? tiles.indexOf(tile) : -1;
+      const list = tiles.length ? tiles : Array.from(el.querySelectorAll(".app-tile"));
+      startedOn = tile ? list.indexOf(tile) : -1;
       holdTimer = setTimeout(beginCycle, HOLD_MS);
     };
 
     const onUp = () => {
       if (cycling) {
-        const chosen = idx;
-        stop();
-        if (chosen >= 0 && tiles[chosen]) ctx.go(tiles[chosen].dataset.route);
+        // Freeze the highlight so you can SEE what you're about to get, then commit only if
+        // the finger really stayed off. A bounce re-enters via onDown and cancels this.
+        clearInterval(stepTimer); stepTimer = null;
+        if (track) track.classList.add("paused");
+        const hint = el.querySelector("#hold-hint");
+        if (hint) hint.textContent = "opening…";
+        clearTimeout(releaseTimer);
+        releaseTimer = setTimeout(() => {
+          const chosen = idx;
+          stop();
+          if (chosen >= 0 && tiles[chosen]) ctx.go(tiles[chosen].dataset.route);
+        }, RELEASE_MS);
         return;
       }
       // Released before the cycle started: do NOTHING. Plain taps are deliberately disabled
       // on the launcher - this panel's press coordinate drifts, so a tap opened the wrong
       // app often enough to be useless, and having both paths meant the tap always won the
       // race before the hold could engage. Hold-to-cycle is the only way in now.
-      stop();
+      clearTimeout(holdTimer); holdTimer = null;
+      startedOn = -1;
     };
 
     // Bind on the carousel so a press that lands BETWEEN tiles still starts a cycle -

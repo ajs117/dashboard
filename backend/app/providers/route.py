@@ -14,6 +14,13 @@ from . import client
 _BASE = "https://api.adsbdb.com/v0/callsign"
 
 
+def _num(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _airport(a: dict | None) -> dict | None:
     if not a:
         return None
@@ -23,6 +30,10 @@ def _airport(a: dict | None) -> dict | None:
         "name": a.get("name"),
         "city": a.get("municipality"),
         "country": a.get("country_name"),
+        # Coordinates let the flight-watch panel work out how far along a flight is and
+        # roughly when it lands, rather than just naming the two airports.
+        "lat": _num(a.get("latitude")),
+        "lon": _num(a.get("longitude")),
     }
 
 

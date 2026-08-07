@@ -10,7 +10,8 @@ const PLANE_PATH =
 const _norm = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export const aircraft = {
-  _map: null, _timer: null, _markers: {}, _selected: null, _data: null, _follow: true,
+  _map: null, _timer: null, _watchTimer: null, _markers: {}, _selected: null,
+  _data: null, _follow: true,
 
   async mount(el, ctx) {
     this._markers = {};
@@ -20,6 +21,7 @@ export const aircraft = {
       <div class="ac-layout">
         <div id="ac-map" class="full-map"></div>
         <div class="ac-side">
+          <div class="ac-watch" id="ac-watch" hidden></div>
           <div class="ac-photo" id="ac-photo"><span class="muted">Select an aircraft</span></div>
           <div class="ac-sky" id="ac-sky"></div>
           <div class="ac-detail" id="ac-detail"><div class="muted">No aircraft in range</div></div>
@@ -58,10 +60,70 @@ export const aircraft = {
         if (list) list.innerHTML = `<div class="err">Aircraft unavailable</div>`;
       }
     };
+    // Watched flights (family travelling etc): looked up globally by callsign, so they show
+    // regardless of whether they're anywhere near the map view.
+    const loadWatch = async () => {
+      try {
+        const env = await ctx.api("/api/flights/watch");
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        this._renderWatch(el, (env.data && env.data.flights) || []);
+      } catch (e) { /* panel just stays hidden */ }
+    };
+
     await load();
     if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     // Slow refresh (planes don't need per-second updates; respects the 1 req/s upstream).
     this._timer = setInterval(load, (ctx.config?.refresh?.aircraft || 20) * 1000);
+    loadWatch();
+    this._watchTimer = setInterval(loadWatch, 60000);   // watched flights move slowly
+  },
+
+  // Panel for the watched flights: route, progress bar, ETA. Hidden entirely when the
+  // watch list is empty, so the page is unchanged for anyone not using the feature.
+  _renderWatch(el, flights) {
+    const box = el.querySelector("#ac-watch");
+    if (!box) return;
+    if (!flights.length) { box.hidden = true; box.innerHTML = ""; return; }
+    box.hidden = false;
+    box.innerHTML = flights.map((f) => {
+      const rt = f.route || {};
+      const o = rt.origin || {}, d = rt.destination || {};
+      const leg = (o.iata || d.iata)
+        ? `${esc(o.iata || "?")} → ${esc(d.iata || "?")}`
+        : `<span class="muted">route unknown</span>`;
+      const where = (o.city || d.city) ? `${esc(o.city || "")} → ${esc(d.city || "")}` : "";
+      let line, bar = "";
+      if (f.status === "airborne" || f.status === "ground") {
+        const bits = [];
+        if (f.altitude != null) bits.push(`${Math.round(f.altitude).toLocaleString()} ft`);
+        if (f.speed != null) bits.push(`${Math.round(f.speed)} kt`);
+        if (f.distance_mi != null) bits.push(`${f.distance_mi} mi ${esc(f.compass || "")}`);
+        line = bits.join(" · ");
+        if (f.percent != null) {
+          const eta = f.eta_minutes != null
+            ? (f.eta_minutes >= 60
+              ? `~${Math.floor(f.eta_minutes / 60)}h ${f.eta_minutes % 60}m left`
+              : `~${f.eta_minutes}m left`)
+            : (f.remaining_nm != null ? `${f.remaining_nm} nm left` : "");
+          bar = `<div class="wf-bar"><i style="width:${f.percent}%"></i></div>`
+            + `<div class="wf-eta">${f.percent}% · ${esc(eta)}</div>`;
+        }
+      } else if (f.status === "stale") {
+        // Out of ADS-B coverage (typically mid-ocean) - say so rather than implying it's gone.
+        line = `<span class="muted">no signal for ${f.last_seen_minutes ?? "?"} min`
+          + `${f.percent != null ? ` · was ${f.percent}% along` : ""}</span>`;
+      } else if (f.status === "error") {
+        line = `<span class="muted">lookup failed</span>`;
+      } else {
+        line = `<span class="muted">not being tracked right now</span>`;
+      }
+      return `<div class="wf">
+        <div class="wf-top"><span class="wf-cs">${esc(f.callsign)}</span>
+          <span class="wf-leg">${leg}</span></div>
+        ${where ? `<div class="wf-where">${where}</div>` : ""}
+        <div class="wf-line">${line}</div>${bar}
+      </div>`;
+    }).join("");
   },
 
   // Aircraft currently inside the map viewport (nearest-first, as the backend orders them).
@@ -316,6 +378,7 @@ export const aircraft = {
 
   unmount() {
     clearInterval(this._timer);
+    clearInterval(this._watchTimer);
     if (this._map) { this._map.remove(); this._map = null; }
     this._markers = {};
   },
