@@ -11,7 +11,7 @@ const _norm = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export const aircraft = {
   _map: null, _timer: null, _watchTimer: null, _markers: {}, _selected: null,
-  _data: null, _follow: true,
+  _data: null, _follow: true, _focus: false, _wfMarker: null,
 
   async mount(el, ctx) {
     this._markers = {};
@@ -83,8 +83,36 @@ export const aircraft = {
   _renderWatch(el, flights) {
     const box = el.querySelector("#ac-watch");
     if (!box) return;
+    // Focus mode: while a flight is being watched, the page is ABOUT that flight. The
+    // nearby-aircraft list, photo and look-angle panels are hidden - they're noise when
+    // you're following family, and dropping them also takes a lot of weight off a 512MB
+    // Pi (this page was the one logging WebKit load failures).
+    const layout = el.querySelector(".ac-layout");
+    this._focus = flights.length > 0;
+    if (layout) layout.classList.toggle("focus", this._focus);
     if (!flights.length) { box.hidden = true; box.innerHTML = ""; return; }
     box.hidden = false;
+
+    // Put the map on the watched flight, wherever in the world it is.
+    const pos = flights.find((f) => f.lat != null && f.lon != null);
+    if (pos && this._map) {
+      if (!this._wfMarker) {
+        this._wfMarker = L.circleMarker([pos.lat, pos.lon], {
+          radius: 9, color: "#fff", weight: 3, fillColor: "#4ea3ff", fillOpacity: 1,
+        }).addTo(this._map);
+      } else {
+        this._wfMarker.setLatLng([pos.lat, pos.lon]);
+      }
+      // Only re-centre when it has actually moved a meaningful distance, so the map isn't
+      // yanked around on every refresh.
+      const c = this._map.getCenter();
+      if (Math.abs(c.lat - pos.lat) > 0.5 || Math.abs(c.lng - pos.lon) > 0.5) {
+        this._map.setView([pos.lat, pos.lon], Math.min(this._map.getZoom(), 5));
+      }
+    } else if (this._wfMarker && this._map) {
+      this._map.removeLayer(this._wfMarker);
+      this._wfMarker = null;
+    }
     box.innerHTML = flights.map((f) => {
       const rt = f.route || {};
       const o = rt.origin || {}, d = rt.destination || {};
@@ -108,6 +136,11 @@ export const aircraft = {
           bar = `<div class="wf-bar"><i style="width:${f.percent}%"></i></div>`
             + `<div class="wf-eta">${f.percent}% · ${esc(eta)}</div>`;
         }
+      } else if (f.status === "landed") {
+        // Flight's done. Say so plainly and stop updating - it stays like this until a new
+        // flight number is set on the remote page.
+        line = `<span class="wf-landed">✅ Landed${d.city ? ` at ${esc(d.city)}` : ""}</span>`
+          + `<br><span class="muted">set a new flight number on the remote page</span>`;
       } else if (f.status === "stale") {
         // Out of ADS-B coverage (typically mid-ocean) - say so rather than implying it's gone.
         line = `<span class="muted">no signal for ${f.last_seen_minutes ?? "?"} min`
@@ -115,7 +148,7 @@ export const aircraft = {
       } else if (f.status === "error") {
         line = `<span class="muted">lookup failed</span>`;
       } else {
-        line = `<span class="muted">not being tracked right now</span>`;
+        line = `<span class="muted">not airborne yet — waiting for it to depart</span>`;
       }
       return `<div class="wf">
         <div class="wf-top"><span class="wf-cs">${esc(f.callsign)}</span>
@@ -182,6 +215,15 @@ export const aircraft = {
     const data = this._data;
     const list = el.querySelector("#ac-list");
     if (!list) return;
+    // Focus mode: don't draw local traffic at all. It's not what you're looking at, and
+    // every marker is memory this Pi would rather spend on not crashing.
+    if (this._focus) {
+      for (const hex of Object.keys(this._markers)) {
+        this._map.removeLayer(this._markers[hex]);
+        delete this._markers[hex];
+      }
+      return;
+    }
     if (!data || !Array.isArray(data.aircraft)) {     // null/error envelope -> don't crash
       list.innerHTML = `<div class="muted" style="padding:16px">No aircraft data</div>`;
       return;

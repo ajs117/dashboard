@@ -252,6 +252,21 @@ html, body {
    you see on the aircraft page, regardless of what's near the map view. */
 .ac-watch { border-bottom: 1px solid var(--line); background: var(--panel-2); }
 .ac-watch[hidden] { display: none; }
+/* Focus mode: while a flight is watched the page is about THAT flight. Hide the nearby
+   list, photo and look-angle panels - noise when following family, and a lot less for a
+   512MB Pi to hold. */
+.ac-layout.focus .ac-photo,
+.ac-layout.focus .ac-sky,
+.ac-layout.focus .ac-detail,
+.ac-layout.focus .ac-list { display: none; }
+.ac-layout.focus .ac-watch { flex: 1; overflow-y: auto; border-bottom: none; }
+.ac-layout.focus .wf { padding: 14px 16px; }
+.ac-layout.focus .wf-cs { font-size: 24px; }
+.ac-layout.focus .wf-leg { font-size: 17px; }
+.ac-layout.focus .wf-line { font-size: 14px; margin-top: 6px; }
+.ac-layout.focus .wf-bar { height: 9px; margin-top: 10px; }
+.ac-layout.focus .wf-eta { font-size: 13px; }
+.wf-landed { color: var(--good); font-weight: 700; font-size: 15px; }
 .wf { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); }
 .wf:last-child { border-bottom: none; }
 .wf-top { display: flex; align-items: baseline; gap: 8px; }

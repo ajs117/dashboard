@@ -58,6 +58,29 @@ def progress(cur_lat: float, cur_lon: float,
     return out
 
 
+def has_landed(prev: dict[str, Any] | None, live: dict[str, Any] | None,
+               remaining_nm: float | None, now: float | None = None) -> bool:
+    """Pure: is this flight finished?
+
+    Only ever true for a flight we actually watched get airborne - otherwise a callsign
+    entered before departure (sitting on stand) would instantly read as "landed".
+
+    Two ways to finish:
+      * we can see it on the ground close to its destination, or
+      * it was near destination and then dropped off ADS-B for a good while, which is what
+        landing looks like when the destination has poor low-level coverage.
+    """
+    if not prev or not prev.get("seen_airborne"):
+        return False
+    now = now if now is not None else time.time()
+    if live is not None:
+        on_ground = (live.get("altitude") or 0) <= 500
+        return bool(on_ground and remaining_nm is not None and remaining_nm < 30)
+    quiet_min = (now - float(prev.get("seen_at") or 0)) / 60.0
+    was_close = prev.get("remaining_nm") is not None and prev["remaining_nm"] < 80
+    return bool(quiet_min > 25 and was_close)
+
+
 def eta_minutes(remaining_nm: float | None, ground_speed_kt: float | None) -> int | None:
     """Pure: minutes to destination at the current ground speed.
 
@@ -115,9 +138,27 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
     home_lon = float(loc.get("lon") or 0.0)
     wanted = [normalise(c) for c in (cfg.get("watch_flights") or []) if normalise(c)]
 
+    # Forget callsigns that are no longer watched, so removing a flight and adding it again
+    # later starts clean rather than resurrecting an old "landed" verdict.
+    for gone in [k for k in _last_seen if k not in wanted]:
+        _last_seen.pop(gone, None)
+
     flights: list[dict[str, Any]] = []
     for cs in wanted:
         entry: dict[str, Any] = {"callsign": cs, "status": "unknown"}
+        prev = _last_seen.get(cs)
+
+        # Finished flights stop costing upstream lookups entirely: the panel just reports
+        # the result until a new flight number is set.
+        if prev and prev.get("landed"):
+            entry.update({k: v for k, v in prev.items() if k != "status"})
+            entry["status"] = "landed"
+            try:
+                entry["route"] = await route_provider.fetch(cs)
+            except Exception:  # noqa: BLE001
+                entry["route"] = None
+            flights.append(entry)
+            continue
         # Route first: it's useful even when the aircraft isn't currently being tracked,
         # and it's what makes the panel readable ("Hong Kong -> London").
         try:
@@ -135,12 +176,17 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
         if ac:
             live = _shape(ac, home_lat, home_lon)
             entry.update(live)
-            entry["status"] = "airborne" if (live.get("altitude") or 0) > 500 else "ground"
+            airborne = (live.get("altitude") or 0) > 500
+            entry["status"] = "airborne" if airborne else "ground"
             rt = entry.get("route") or {}
             prog = progress(live["lat"], live["lon"], rt.get("origin"), rt.get("destination"))
             entry.update(prog)
             entry["eta_minutes"] = eta_minutes(prog.get("remaining_nm"), live.get("speed"))
             entry["seen_at"] = time.time()
+            entry["seen_airborne"] = bool(airborne or (prev or {}).get("seen_airborne"))
+            if has_landed(prev, live, prog.get("remaining_nm")):
+                entry["status"] = "landed"
+                entry["landed"] = True
             _last_seen[cs] = {k: entry[k] for k in entry if k != "route"}
             if len(_last_seen) > _MAX_REMEMBERED:
                 oldest = min(_last_seen, key=lambda k: _last_seen[k].get("seen_at", 0))
@@ -148,12 +194,16 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
         else:
             # No current fix. Show the last one we had (with its age) so a mid-ocean
             # coverage gap is obviously a gap rather than the flight disappearing.
-            prev = _last_seen.get(cs)
             entry["status"] = "not_tracked"
             if prev:
                 entry.update({k: v for k, v in prev.items() if k != "status"})
-                entry["status"] = "stale"
-                entry["last_seen_minutes"] = int((time.time() - prev.get("seen_at", 0)) / 60)
+                if has_landed(prev, None, prev.get("remaining_nm")):
+                    entry["status"] = "landed"
+                    entry["landed"] = True
+                    _last_seen[cs] = {**prev, "landed": True}
+                else:
+                    entry["status"] = "stale"
+                    entry["last_seen_minutes"] = int((time.time() - prev.get("seen_at", 0)) / 60)
         flights.append(entry)
 
     return {"flights": flights, "count": len(flights)}
