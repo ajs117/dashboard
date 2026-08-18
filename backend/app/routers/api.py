@@ -4,14 +4,15 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 
 from .. import config
 from ..cache import cache
 from ..providers import (
-    aircraft, air_quality, ecoflow, facts, flightwatch, govee, news, photos, radar,
-    radar_forecast, ring, route, stocks, trains, weather,
+    aircraft, air_quality, claude_usage, ecoflow, facts, flightwatch, govee, news, photos,
+    radar, radar_forecast, ring, route, stocks, trains, weather,
 )
+from .config_api import require_admin
 
 router = APIRouter(prefix="/api", tags=["data"])
 
@@ -128,6 +129,35 @@ async def get_indoor() -> dict[str, Any]:
     cfg = config.get()
     ttl = _ttls().get("indoor", 60)
     return await cache.get_or_fetch("indoor_room", ttl, lambda: govee.fetch(cfg, "govee_indoor"))
+
+
+# --- Claude subscription usage ---------------------------------------------------------
+# Not cached: fetch() is a local file read, and the cache's `age` would report when we last
+# read the file rather than when the numbers were actually pushed — the only age that means
+# anything here. The provider computes the real age instead.
+@router.get("/claude-usage")
+async def get_claude_usage() -> dict[str, Any]:
+    data = await claude_usage.fetch(config.get())
+    return {"data": data, "stale": bool(data.get("stale")),
+            "age": data.get("age"), "error": None}
+
+
+@router.post("/claude-usage")
+async def post_claude_usage(
+    body: dict[str, Any],
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Receive a usage snapshot from a machine that runs Claude Code.
+
+    Admin-gated unlike the rest of the LAN API: this one WRITES to /data, so an accidental
+    request from anything else on the network shouldn't be able to plant numbers here.
+    """
+    require_admin(x_admin_token)
+    try:
+        record = claude_usage.store(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "stored": record}
 
 
 @router.get("/flights/watch")

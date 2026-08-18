@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api", tags=["config"])
 _INSECURE_TOKENS = {"", "change-me", "change-me-to-something-random"}
 
 
-def _require_admin(token: str | None) -> None:
+def require_admin(token: str | None) -> None:
     # If we're running on the committed example (no real config.yaml), refuse all
     # mutations — the example's admin_token is public, so honouring it is unsafe.
     if config.is_fallback():
@@ -55,7 +55,7 @@ async def set_location(
     body: LocationIn,
     x_admin_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_admin(x_admin_token)
+    require_admin(x_admin_token)
     data = config.get()
     loc = data.setdefault("location", {})
     loc["lat"] = body.lat
@@ -73,7 +73,7 @@ async def patch_settings(
     body: dict[str, Any],
     x_admin_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _require_admin(x_admin_token)
+    require_admin(x_admin_token)
     data = config.get()
     # Only allow patching known non-secret top-level sections.
     allowed = {"units", "world_clocks", "aircraft", "refresh"}

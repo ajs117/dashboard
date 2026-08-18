@@ -166,6 +166,36 @@ html, body {
 .hs-s { font-size: 12px; color: var(--muted); }
 #carousel > div { animation: wxfade .35s ease; }   /* fade the clock as it cycles cities */
 
+/* House tile: Indoor + Solar share one tile as two half-width columns. Both are a single
+   number plus a footnote, so a full tile each wasted width — the freed slot is Claude Pro
+   usage. min-width:0 on the halves so a long footnote ellipsises instead of widening the
+   flex column and pushing the other half off the tile. */
+.hs-duo { display: flex; align-items: stretch; gap: 8px; }
+.hs-half { flex: 1 1 0; min-width: 0; text-align: center; }
+.hs-half + .hs-half { border-left: 1px solid var(--line); padding-left: 8px; }
+.hd-k { font-size: 11.5px; color: var(--muted); white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }
+.hd-v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums;
+        line-height: 1.15; white-space: nowrap; }
+.hd-s { font-size: 11px; color: var(--muted); white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }
+
+/* Claude Pro usage: one bar per limit window (5-hour session, rolling week). */
+.cu-rows { display: flex; flex-direction: column; gap: 5px; margin: 2px 0 1px; }
+.cu-rows.is-stale { opacity: .5; }        /* an old reading must not read as a live one */
+.cu-row { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.cu-l { color: var(--muted); width: 48px; text-align: left; flex: none; }
+.cu-bar { flex: 1 1 auto; height: 9px; border-radius: 5px; background: var(--panel-2);
+          overflow: hidden; }
+.cu-bar i { display: block; height: 100%; border-radius: 5px; background: var(--accent);
+            min-width: 2px; transition: width .4s ease; }
+.cu-bar i.lvl-good { background: #34d17a; }
+.cu-bar i.lvl-mod  { background: #e2c341; }
+.cu-bar i.lvl-high { background: #e8912f; }
+.cu-bar i.lvl-bad  { background: #e0524a; }
+.cu-p { width: 38px; text-align: right; flex: none; font-weight: 700;
+        font-variant-numeric: tabular-nums; }
+
 /* The Cameras launcher tile doubles as a live-ish preview: it alternates between the
    normal icon/label face and a camera snapshot. The preview is absolutely positioned so
    the image NEVER contributes to layout - otherwise it would stretch the flex tile and

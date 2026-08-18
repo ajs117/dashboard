@@ -121,6 +121,17 @@ govee_indoor:
   device: ""            # device id/MAC
   reports_fahrenheit: true
 
+# --- Claude Pro usage (home-strip tile) ---
+# The Pi has no Claude login and must not have one: the OAuth token rotates on refresh, so
+# a second copy here would silently log out the machine that owns it. Instead a machine
+# running Claude Code pushes the percentages in:
+#   python deploy/scripts/claude_usage_push.py --url http://<pi>:8080 --token <admin_token>
+# Schedule that every ~15 min. Nothing here is a secret; the push is admin-token gated
+# because it writes to /data.
+claude_usage:
+  enabled: true
+  max_age_minutes: 45   # beyond this the tile says "not updating" instead of showing old %
+
 # --- Parcel tracking (Parcel.app) ---
 # Deliveries are managed in the Parcel app; the dashboard just READS your active/recent
 # ones and shows a card per delivery. Add/remove parcels in the app (web.parcelapp.net),

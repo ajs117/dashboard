@@ -86,3 +86,33 @@ def test_location_update_with_token(client):
     assert r.json()["location"]["lat"] == 5.0
     # Reflected in subsequent config read.
     assert client.get("/api/config").json()["location"]["label"] == "New"
+
+
+# --- Claude Pro usage push ------------------------------------------------------------
+def test_claude_usage_push_requires_token(client):
+    body = {"five_hour": {"utilization": 12.0}, "seven_day": {"utilization": 30.0}}
+    assert client.post("/api/claude-usage", json=body).status_code == 403
+    assert client.post("/api/claude-usage", json=body,
+                       headers={"X-Admin-Token": "wrong"}).status_code == 403
+    # Nothing was stored by the rejected attempts.
+    assert client.get("/api/claude-usage").json()["data"]["updated_at"] is None
+
+
+def test_claude_usage_round_trip(client):
+    body = {"five_hour": {"utilization": 12.0, "resets_at": "2026-08-18T18:00:00+00:00"},
+            "seven_day": {"utilization": 30.4}, "plan": "pro"}
+    r = client.post("/api/claude-usage", json=body, headers={"X-Admin-Token": "hunter2"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+    env = client.get("/api/claude-usage").json()
+    assert env["stale"] is False
+    assert env["data"]["session"] == {"percent": 12,
+                                      "resets_at": "2026-08-18T18:00:00+00:00"}
+    assert env["data"]["weekly"]["percent"] == 30
+    assert env["data"]["plan"] == "pro"
+
+
+def test_claude_usage_rejects_a_shapeless_payload(client):
+    r = client.post("/api/claude-usage", json={"nope": 1},
+                    headers={"X-Admin-Token": "hunter2"})
+    assert r.status_code == 400

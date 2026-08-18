@@ -100,8 +100,8 @@ export const home = {
 
         <div class="home-strip">
           <div class="hs-tile" id="countdown"><div class="hs-k">⏳ Countdown</div><div class="hs-v">—</div></div>
-          <div class="hs-tile" id="home-indoor"><div class="hs-k">🏠 Indoor</div><div class="hs-v">—</div></div>
-          <div class="hs-tile" id="home-solar"><div class="hs-k">🌞 Solar</div><div class="hs-v">—</div></div>
+          <div class="hs-tile" id="home-house"><div class="hs-k">🏠 House</div><div class="hs-v">—</div></div>
+          <div class="hs-tile" id="home-claude"><div class="hs-k">✳️ Claude Pro</div><div class="hs-v">—</div></div>
         </div>
 
         <div class="ticker-bar"><div class="ticker" id="ticker">
@@ -297,14 +297,16 @@ export const home = {
       }
     };
 
-    // Home strip: Indoor (Hive) + Solar (EcoFlow). Both show "—" until configured.
+    // Home strip: the House tile (indoor temp + solar together) and Claude Pro usage.
     const loadHome = async () => {
-      const [solar, indoor] = await Promise.all([
+      const [solar, indoor, claude] = await Promise.all([
         ctx.api("/api/solar").catch(() => null),
         ctx.api("/api/indoor").catch(() => null),
+        ctx.api("/api/claude-usage").catch(() => null),
       ]);
       if (ctx.isCurrent && !ctx.isCurrent()) return;
-      renderHomeStrip(el, cfg, solar && solar.data, indoor && indoor.data);
+      renderHouseTile(el, cfg, solar && solar.data, indoor && indoor.data);
+      renderClaudeTile(el, claude && claude.data);
     };
 
     await loadWeather();
@@ -603,43 +605,107 @@ function forecastPage(w) {
   }).join("");
 }
 
-// Fill the Indoor (Hive) + Solar (EcoFlow) tiles. Both degrade to "—" until configured.
-function renderHomeStrip(el, cfg, solar, indoor) {
+// Indoor (Govee) and Solar (EcoFlow) share one "House" tile as two half-width columns —
+// both are one number plus a footnote, so a whole tile each was wasted width. The freed
+// slot is the Claude Pro usage tile.
+function houseHalf(icon, label, value, sub) {
+  return `<div class="hs-half"><div class="hd-k">${icon} ${esc(label)}</div>`
+    + `<div class="hd-v">${esc(value)}</div><div class="hd-s">${esc(sub)}</div></div>`;
+}
+
+function renderHouseTile(el, cfg, solar, indoor) {
+  const box = el.querySelector("#home-house");
+  if (!box) return;
   const useF = (cfg.units?.temperature === "fahrenheit");
-  const ind = el.querySelector("#home-indoor");
-  const sol = el.querySelector("#home-solar");
-  if (ind) {
-    let v = "—", sub = "add 2nd Govee";
-    if (indoor && indoor.enabled) {
-      const t = useF ? indoor.temperature_f : indoor.temperature_c;
-      if (t != null) v = t.toFixed(1) + (useF ? "°F" : "°C");
-      sub = indoor.humidity != null ? `${indoor.humidity}% humidity`
-        : (indoor.online === false ? "sensor offline" : "");
-    }
-    ind.innerHTML = `<div class="hs-k">🏠 Indoor</div><div class="hs-v">${v}</div>`
-      + `<div class="hs-s">${esc(sub)}</div>`;
+
+  let iv = "—", isub = "add 2nd Govee";
+  if (indoor && indoor.enabled) {
+    const t = useF ? indoor.temperature_f : indoor.temperature_c;
+    if (t != null) iv = t.toFixed(1) + (useF ? "°F" : "°C");
+    isub = indoor.humidity != null ? `${indoor.humidity}% RH`
+      : (indoor.online === false ? "offline" : "");
   }
-  if (sol) {
-    let v = "—", sub = "set up EcoFlow";
-    if (solar && solar.enabled) {
-      const w = solar.watts_now;
-      // Never render "no data" as "0 W" - that read as a genuine zero and looked simply
-      // wrong next to the EcoFlow app's real output. null/stale shows "—" plus why.
-      if (w == null) {
-        v = "—";
-        sub = solar.connected === false ? "no link to EcoFlow"
-          : (solar.stale ? "waiting for data" : "no reading");
-      } else {
-        v = w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W";
-        // Show how fresh the figure is; a silently frozen wattage was the original problem.
-        const age = solar.age;
-        sub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today`
-          : (age != null && age > 90 ? `${Math.round(age / 60)}m ago` : "now");
-      }
+
+  let sv = "—", ssub = "set up EcoFlow";
+  if (solar && solar.enabled) {
+    const w = solar.watts_now;
+    // Never render "no data" as "0 W" - that read as a genuine zero and looked simply
+    // wrong next to the EcoFlow app's real output. null/stale shows "—" plus why.
+    if (w == null) {
+      sv = "—";
+      ssub = solar.connected === false ? "no link" : (solar.stale ? "waiting" : "no reading");
+    } else {
+      sv = w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W";
+      // Show how fresh the figure is; a silently frozen wattage was the original problem.
+      const age = solar.age;
+      ssub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today`
+        : (age != null && age > 90 ? `${Math.round(age / 60)}m ago` : "now");
     }
-    sol.innerHTML = `<div class="hs-k">🌞 Solar</div><div class="hs-v">${v}</div>`
-      + `<div class="hs-s">${esc(sub)}</div>`;
   }
+
+  box.innerHTML = `<div class="hs-k">🏠 House</div><div class="hs-duo">`
+    + houseHalf("🌡️", "Indoor", iv, isub) + houseHalf("🌞", "Solar", sv, ssub) + `</div>`;
+}
+
+// --- Claude Pro usage -----------------------------------------------------------------
+// Percentages of the plan's two limit windows: the 5-hour session and the rolling week.
+// Pushed in from a machine running Claude Code (the Pi has no login), so an old reading is
+// labelled rather than shown as if current.
+function usageClass(p) {
+  if (p == null) return "";
+  if (p >= 90) return "lvl-bad";
+  if (p >= 75) return "lvl-high";
+  if (p >= 50) return "lvl-mod";
+  return "lvl-good";
+}
+
+// "2h 14m" / "48m" / "3d" until an ISO timestamp; null once it's in the past.
+function untilText(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  const mins = Math.round((t - Date.now()) / 60000);
+  if (mins <= 0) return null;
+  if (mins < 60) return `${mins}m`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return `${Math.round(mins / 1440)}d`;
+}
+
+function usageRow(label, win) {
+  const p = win && win.percent != null ? win.percent : null;
+  const bar = `<span class="cu-bar"><i class="${usageClass(p)}" style="width:${p ?? 0}%"></i></span>`;
+  return `<div class="cu-row"><span class="cu-l">${esc(label)}</span>${bar}`
+    + `<span class="cu-p">${p == null ? "—" : p + "%"}</span></div>`;
+}
+
+function renderClaudeTile(el, u) {
+  const box = el.querySelector("#home-claude");
+  if (!box) return;
+  const head = `<div class="hs-k">✳️ Claude Pro</div>`;
+  if (!u || !u.enabled) {
+    box.innerHTML = head + `<div class="hs-v">—</div><div class="hs-s">disabled</div>`;
+    return;
+  }
+  if (u.updated_at == null) {
+    box.innerHTML = head + `<div class="hs-v">—</div><div class="hs-s">no data pushed yet</div>`;
+    return;
+  }
+  // Sub-line prefers the reset that lands soonest (usually the session window); when the
+  // figures have gone stale, say so instead — a frozen percentage that looks live is worse
+  // than an honest gap, which is exactly the trap the solar tile fell into.
+  let sub;
+  if (u.stale) {
+    const mins = Math.round((u.age || 0) / 60);
+    sub = mins >= 120 ? `not updating · ${Math.round(mins / 60)}h old` : `not updating · ${mins}m old`;
+  } else {
+    const s = untilText(u.session && u.session.resets_at);
+    const w = untilText(u.weekly && u.weekly.resets_at);
+    sub = s ? `session resets in ${s}` : (w ? `week resets in ${w}` : "");
+  }
+  box.innerHTML = head
+    + `<div class="cu-rows${u.stale ? " is-stale" : ""}">`
+    + usageRow("Session", u.session) + usageRow("Week", u.weekly) + `</div>`
+    + `<div class="hs-s">${esc(sub)}</div>`;
 }
 
 // Order countdowns soonest-first, dropping ones that have already passed — config order is
