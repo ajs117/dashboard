@@ -105,7 +105,7 @@ export const home = {
         <div class="home-strip">
           <div class="hs-tile" id="countdown"><div class="hs-k">⏳ Countdown</div><div class="hs-v">—</div></div>
           <div class="hs-tile" id="home-house"><div class="hs-k">🏠 House</div><div class="hs-v">—</div></div>
-          <div class="hs-tile" id="home-claude"><div class="hs-k">✳️ Claude Pro</div><div class="hs-v">—</div></div>
+          <div class="hs-tile" id="home-claude"><div class="hs-k">🤖 Claude Pro</div><div class="hs-v">—</div></div>
         </div>
 
         <div class="ticker-bar"><div class="ticker" id="ticker">
@@ -694,10 +694,16 @@ function renderClaudeTile(el, u, page) {
   const box = el.querySelector("#home-claude");
   if (!box) return;
   const session = page % 2 === 0;
-  const key = `✳️ Claude · ${session ? "session" : "week"}`;
+  const key = `🤖 Claude · ${session ? "session" : "week"}`;
   const head = `<div class="hs-k">${key}</div>`;
-  if (!u || !u.enabled) {
-    box.innerHTML = head + `<div class="hs-v">—</div><div class="hs-s">disabled</div>`;
+  // A failed fetch is NOT the same as the module being switched off - reporting "disabled"
+  // for an unreachable backend sends you looking in config for a setting that's already on.
+  if (!u) {
+    box.innerHTML = head + `<div class="hs-v">—</div><div class="hs-s">no reply from backend</div>`;
+    return;
+  }
+  if (!u.enabled) {
+    box.innerHTML = head + `<div class="hs-v">—</div><div class="hs-s">disabled in config</div>`;
     return;
   }
   if (u.updated_at == null) {
