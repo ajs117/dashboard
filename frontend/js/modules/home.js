@@ -54,6 +54,7 @@ export const home = {
   _air: null, _airTimer: null, _wx: null, _wxPage: 0, _homeTimer: null, _sec: 0,
   _cdIdx: 0, _cdDay: null, _appTimer: null, _parcelSubs: [], _parcelSubIdx: 0,
   _cams: [], _camIdx: -1, _camShown: -1, _camTimer: null, _camListTimer: null,
+  _houseIdx: 0, _claudeIdx: 0, _solarD: null, _indoorD: null, _claudeD: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
@@ -70,6 +71,9 @@ export const home = {
     this._sec = 0;
     this._cdIdx = 0;
     this._cdDay = null;
+    this._houseIdx = 0;
+    this._claudeIdx = 0;
+    this._solarD = this._indoorD = this._claudeD = null;   // don't reuse a stale mount's data
 
     el.innerHTML = `
       <div class="module home">
@@ -162,6 +166,16 @@ export const home = {
       if (dayKey !== this._cdDay) {
         this._cdDay = dayKey;
         renderCountdown(el, cds, this._cdIdx);
+      }
+      // The other two strip tiles flip between their two pages, staggered off the clock
+      // (:00) and weather (:05) so only one thing on screen ever changes at a time.
+      if (this._sec % 10 === 3) {
+        this._houseIdx ^= 1;
+        renderHouseTile(el, cfg, this._solarD, this._indoorD, this._houseIdx);
+      }
+      if (this._sec % 10 === 8) {
+        this._claudeIdx ^= 1;
+        renderClaudeTile(el, this._claudeD, this._claudeIdx);
       }
     };
     tick();
@@ -297,7 +311,9 @@ export const home = {
       }
     };
 
-    // Home strip: the House tile (indoor temp + solar together) and Claude Pro usage.
+    // Home strip: the House tile (indoor <-> solar) and Claude Pro usage (session <-> week).
+    // Both flip between two pages on the shared 1s tick; the data is kept so a flip can
+    // re-render without refetching.
     const loadHome = async () => {
       const [solar, indoor, claude] = await Promise.all([
         ctx.api("/api/solar").catch(() => null),
@@ -305,8 +321,11 @@ export const home = {
         ctx.api("/api/claude-usage").catch(() => null),
       ]);
       if (ctx.isCurrent && !ctx.isCurrent()) return;
-      renderHouseTile(el, cfg, solar && solar.data, indoor && indoor.data);
-      renderClaudeTile(el, claude && claude.data);
+      this._solarD = solar && solar.data;
+      this._indoorD = indoor && indoor.data;
+      this._claudeD = claude && claude.data;
+      renderHouseTile(el, cfg, this._solarD, this._indoorD, this._houseIdx);
+      renderClaudeTile(el, this._claudeD, this._claudeIdx);
     };
 
     await loadWeather();
@@ -605,50 +624,49 @@ function forecastPage(w) {
   }).join("");
 }
 
-// Indoor (Govee) and Solar (EcoFlow) share one "House" tile as two half-width columns —
-// both are one number plus a footnote, so a whole tile each was wasted width. The freed
-// slot is the Claude Pro usage tile.
-function houseHalf(icon, label, value, sub) {
-  return `<div class="hs-half"><div class="hd-k">${icon} ${esc(label)}</div>`
-    + `<div class="hd-v">${esc(value)}</div><div class="hd-s">${esc(sub)}</div></div>`;
-}
-
-function renderHouseTile(el, cfg, solar, indoor) {
+// Indoor (Govee) and Solar (EcoFlow) share one tile that flips between them, the same way
+// the countdown and world-clock tiles cycle. Each is one number plus a footnote, so a
+// whole tile each was wasted width — the freed slot is the Claude Pro usage tile.
+// page 0 = indoor, page 1 = solar.
+function renderHouseTile(el, cfg, solar, indoor, page) {
   const box = el.querySelector("#home-house");
   if (!box) return;
-  const useF = (cfg.units?.temperature === "fahrenheit");
-
-  let iv = "—", isub = "add 2nd Govee";
-  if (indoor && indoor.enabled) {
-    const t = useF ? indoor.temperature_f : indoor.temperature_c;
-    if (t != null) iv = t.toFixed(1) + (useF ? "°F" : "°C");
-    isub = indoor.humidity != null ? `${indoor.humidity}% RH`
-      : (indoor.online === false ? "offline" : "");
-  }
-
-  let sv = "—", ssub = "set up EcoFlow";
-  if (solar && solar.enabled) {
-    const w = solar.watts_now;
-    // Never render "no data" as "0 W" - that read as a genuine zero and looked simply
-    // wrong next to the EcoFlow app's real output. null/stale shows "—" plus why.
-    if (w == null) {
-      sv = "—";
-      ssub = solar.connected === false ? "no link" : (solar.stale ? "waiting" : "no reading");
-    } else {
-      sv = w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W";
-      // Show how fresh the figure is; a silently frozen wattage was the original problem.
-      const age = solar.age;
-      ssub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today`
-        : (age != null && age > 90 ? `${Math.round(age / 60)}m ago` : "now");
+  let key, v, sub;
+  if (page % 2 === 0) {
+    key = "🏠 Indoor";
+    v = "—"; sub = "add 2nd Govee";
+    if (indoor && indoor.enabled) {
+      const useF = (cfg.units?.temperature === "fahrenheit");
+      const t = useF ? indoor.temperature_f : indoor.temperature_c;
+      if (t != null) v = t.toFixed(1) + (useF ? "°F" : "°C");
+      sub = indoor.humidity != null ? `${indoor.humidity}% humidity`
+        : (indoor.online === false ? "sensor offline" : "");
+    }
+  } else {
+    key = "🌞 Solar";
+    v = "—"; sub = "set up EcoFlow";
+    if (solar && solar.enabled) {
+      const w = solar.watts_now;
+      // Never render "no data" as "0 W" - that read as a genuine zero and looked simply
+      // wrong next to the EcoFlow app's real output. null/stale shows "—" plus why.
+      if (w == null) {
+        sub = solar.connected === false ? "no link to EcoFlow"
+          : (solar.stale ? "waiting for data" : "no reading");
+      } else {
+        v = w >= 1000 ? (w / 1000).toFixed(2) + " kW" : Math.round(w) + " W";
+        // Show how fresh the figure is; a silently frozen wattage was the original problem.
+        const age = solar.age;
+        sub = solar.kwh_today != null ? `${solar.kwh_today.toFixed(1)} kWh today`
+          : (age != null && age > 90 ? `${Math.round(age / 60)}m ago` : "now");
+      }
     }
   }
-
-  box.innerHTML = `<div class="hs-k">🏠 House</div><div class="hs-duo">`
-    + houseHalf("🌡️", "Indoor", iv, isub) + houseHalf("🌞", "Solar", sv, ssub) + `</div>`;
+  box.innerHTML = `<div class="hs-k">${key}</div><div class="hs-v">${esc(v)}</div>`
+    + `<div class="hs-s">${esc(sub)}</div>`;
 }
 
 // --- Claude Pro usage -----------------------------------------------------------------
-// Percentages of the plan's two limit windows: the 5-hour session and the rolling week.
+// The plan's two limit windows, one per page: the 5-hour session and the rolling week.
 // Pushed in from a machine running Claude Code (the Pi has no login), so an old reading is
 // labelled rather than shown as if current.
 function usageClass(p) {
@@ -671,17 +689,13 @@ function untilText(iso) {
   return `${Math.round(mins / 1440)}d`;
 }
 
-function usageRow(label, win) {
-  const p = win && win.percent != null ? win.percent : null;
-  const bar = `<span class="cu-bar"><i class="${usageClass(p)}" style="width:${p ?? 0}%"></i></span>`;
-  return `<div class="cu-row"><span class="cu-l">${esc(label)}</span>${bar}`
-    + `<span class="cu-p">${p == null ? "—" : p + "%"}</span></div>`;
-}
-
-function renderClaudeTile(el, u) {
+// page 0 = the 5-hour session window, page 1 = the rolling week.
+function renderClaudeTile(el, u, page) {
   const box = el.querySelector("#home-claude");
   if (!box) return;
-  const head = `<div class="hs-k">✳️ Claude Pro</div>`;
+  const session = page % 2 === 0;
+  const key = `✳️ Claude · ${session ? "session" : "week"}`;
+  const head = `<div class="hs-k">${key}</div>`;
   if (!u || !u.enabled) {
     box.innerHTML = head + `<div class="hs-v">—</div><div class="hs-s">disabled</div>`;
     return;
@@ -690,21 +704,23 @@ function renderClaudeTile(el, u) {
     box.innerHTML = head + `<div class="hs-v">—</div><div class="hs-s">no data pushed yet</div>`;
     return;
   }
-  // Sub-line prefers the reset that lands soonest (usually the session window); when the
-  // figures have gone stale, say so instead — a frozen percentage that looks live is worse
-  // than an honest gap, which is exactly the trap the solar tile fell into.
+  const win = session ? u.session : u.weekly;
+  const p = win && win.percent != null ? win.percent : null;
+  // A frozen percentage that looks live is worse than an honest gap — exactly the trap the
+  // solar tile fell into with its stuck wattage. Say "not updating" instead of the reset.
   let sub;
   if (u.stale) {
     const mins = Math.round((u.age || 0) / 60);
-    sub = mins >= 120 ? `not updating · ${Math.round(mins / 60)}h old` : `not updating · ${mins}m old`;
+    sub = mins >= 120 ? `not updating · ${Math.round(mins / 60)}h old`
+      : `not updating · ${mins}m old`;
   } else {
-    const s = untilText(u.session && u.session.resets_at);
-    const w = untilText(u.weekly && u.weekly.resets_at);
-    sub = s ? `session resets in ${s}` : (w ? `week resets in ${w}` : "");
+    const until = untilText(win && win.resets_at);
+    sub = until ? `resets in ${until}` : (session ? "5-hour window" : "rolling 7 days");
   }
   box.innerHTML = head
-    + `<div class="cu-rows${u.stale ? " is-stale" : ""}">`
-    + usageRow("Session", u.session) + usageRow("Week", u.weekly) + `</div>`
+    + `<div class="hs-v">${p == null ? "—" : p + "%"}</div>`
+    + `<div class="cu-bar${u.stale ? " is-stale" : ""}">`
+    + `<i class="${usageClass(p)}" style="width:${p ?? 0}%"></i></div>`
     + `<div class="hs-s">${esc(sub)}</div>`;
 }
 
