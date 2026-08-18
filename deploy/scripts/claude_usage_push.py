@@ -29,8 +29,12 @@ USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA = "oauth-2025-04-20"
 
 
-def credentials_path() -> Path:
-    base = os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude")
+def credentials_path(explicit: str | None = None) -> Path:
+    # ~/.claude can hold a long-abandoned copy of the credentials while the live login lives
+    # in a CLAUDE_CONFIG_DIR elsewhere. Reading the stale one just yields a 401, so allow the
+    # directory to be named outright — a scheduled task has no interactive shell to inherit
+    # the environment variable from.
+    base = explicit or os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude")
     return Path(base) / ".credentials.json"
 
 
@@ -62,10 +66,13 @@ def main() -> int:
                     help="dashboard base URL, e.g. http://192.168.11.42:8080")
     ap.add_argument("--token", default=os.environ.get("DASHBOARD_ADMIN_TOKEN"),
                     help="dashboard admin_token")
+    ap.add_argument("--claude-dir", default=None,
+                    help="Claude config dir holding .credentials.json "
+                         "(default: $CLAUDE_CONFIG_DIR, else ~/.claude)")
     ap.add_argument("--dry-run", action="store_true", help="print the usage, push nothing")
     args = ap.parse_args()
 
-    access_token, plan = read_token(credentials_path())
+    access_token, plan = read_token(credentials_path(args.claude_dir))
     try:
         usage = get_json(USAGE_URL, {
             "Authorization": f"Bearer {access_token}",
@@ -75,7 +82,9 @@ def main() -> int:
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
             # Expected once the access token ages out. Do NOT refresh it here.
-            print("access token rejected — run Claude Code once to refresh it", file=sys.stderr)
+            # ASCII only: this goes to a Windows console / Task Scheduler log, where a
+            # non-cp1252 character turns the whole line into mojibake.
+            print("access token rejected - run Claude Code once to refresh it", file=sys.stderr)
             return 2
         print(f"usage request failed: HTTP {exc.code} {exc.reason}", file=sys.stderr)
         return 1
