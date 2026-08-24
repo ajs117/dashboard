@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 
 @dataclass
@@ -33,6 +34,19 @@ class TTLCache:
     def __init__(self) -> None:
         self._store: dict[str, _Entry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._generation = 0
+
+    def clear(self) -> None:
+        """Invalidate every cached value after a runtime configuration change.
+
+        Incrementing the generation also prevents a fetch that started before the
+        change from putting data produced with the old config back into the cache.
+        Keep only locks that are currently in use; removing those could break the
+        per-key single-flight guarantee for existing waiters.
+        """
+        self._generation += 1
+        self._store.clear()
+        self._locks = {key: lock for key, lock in self._locks.items() if lock.locked()}
 
     def _evict_if_needed(self) -> None:
         if len(self._store) <= _MAX_ENTRIES:
@@ -67,13 +81,15 @@ class TTLCache:
             now = time.time()
             if entry is not None and (now - entry.fetched_at) < ttl:
                 return self._wrap(entry, fresh=True)
+            generation = self._generation
             try:
                 value = await coro()
                 entry = _Entry(value=value, fetched_at=time.time())
-                self._store[key] = entry
-                self._evict_if_needed()
+                if generation == self._generation:
+                    self._store[key] = entry
+                    self._evict_if_needed()
                 return self._wrap(entry, fresh=True)
-            except Exception as exc:  # noqa: BLE001 - surface as stale, don't crash UI
+            except Exception as exc:
                 if entry is not None:
                     entry.error = str(exc)
                     return self._wrap(entry, fresh=False)

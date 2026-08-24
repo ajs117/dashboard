@@ -5,6 +5,7 @@ are write-only: GET masks them, POST keeps the existing value unless a new one i
 """
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from typing import Any
 
@@ -12,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import config, remote
+from ..cache import cache
 
 router = APIRouter(prefix="/api", tags=["remote"])
 
@@ -61,7 +63,12 @@ async def post_cmd(body: CmdIn) -> dict[str, Any]:
 @router.post("/remote/reboot")
 async def reboot() -> dict[str, Any]:
     try:
-        subprocess.run(["sudo", "-n", "/usr/sbin/reboot"], check=True, timeout=10)
+        await asyncio.to_thread(
+            subprocess.run,
+            ["sudo", "-n", "/usr/sbin/reboot"],
+            check=True,
+            timeout=10,
+        )
     except Exception as e:  # noqa: BLE001 - surface why (likely missing sudoers entry)
         raise HTTPException(status_code=500, detail=f"reboot failed: {e}")
     return {"ok": True}
@@ -78,4 +85,5 @@ async def patch_full_config(body: dict[str, Any]) -> dict[str, Any]:
     data = config.get()
     _merge(data, body)
     config.save()
+    cache.clear()
     return {"ok": True, "config": _mask(config.get())}

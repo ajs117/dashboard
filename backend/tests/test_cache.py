@@ -83,3 +83,37 @@ async def test_error_with_no_prior_value_raises():
 
     with pytest.raises(RuntimeError):
         await c.get_or_fetch("k", ttl=0, coro=boom)
+
+
+async def test_clear_forces_a_refetch():
+    c = TTLCache()
+    calls = 0
+
+    async def fetch():
+        nonlocal calls
+        calls += 1
+        return calls
+
+    assert (await c.get_or_fetch("k", ttl=100, coro=fetch))["data"] == 1
+    c.clear()
+    assert (await c.get_or_fetch("k", ttl=100, coro=fetch))["data"] == 2
+
+
+async def test_clear_does_not_recache_an_in_flight_old_value():
+    c = TTLCache()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def old_fetch():
+        started.set()
+        await release.wait()
+        return "old"
+
+    task = asyncio.create_task(c.get_or_fetch("k", ttl=100, coro=old_fetch))
+    await started.wait()
+    c.clear()
+    release.set()
+    assert (await task)["data"] == "old"
+
+    fresh = await c.get_or_fetch("k", ttl=100, coro=lambda: asyncio.sleep(0, result="new"))
+    assert fresh["data"] == "new"

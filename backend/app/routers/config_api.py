@@ -11,9 +11,10 @@ import hmac
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import config
+from ..cache import cache
 
 router = APIRouter(prefix="/api", tags=["config"])
 
@@ -37,8 +38,8 @@ def require_admin(token: str | None) -> None:
 
 
 class LocationIn(BaseModel):
-    lat: float
-    lon: float
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
     label: str | None = None
     timezone: str | None = None
 
@@ -65,6 +66,7 @@ async def set_location(
     if body.timezone is not None:
         loc["timezone"] = body.timezone
     config.save()
+    cache.clear()
     return {"ok": True, "location": loc}
 
 
@@ -87,4 +89,5 @@ async def patch_settings(
                 if k in value:
                     t[k] = value[k]
     config.save()
+    cache.clear()
     return {"ok": True, "config": config.public()}

@@ -64,6 +64,16 @@ def test_location_wrong_token_rejected(client):
     assert r.status_code == 403
 
 
+@pytest.mark.parametrize("lat,lon", [(91, 0), (-91, 0), (0, 181), (0, -181)])
+def test_location_rejects_out_of_range_coordinates(client, lat, lon):
+    r = client.post(
+        "/api/location",
+        json={"lat": lat, "lon": lon},
+        headers={"X-Admin-Token": "hunter2"},
+    )
+    assert r.status_code == 422
+
+
 def test_placeholder_token_blocks_writes(tmp_path, monkeypatch):
     # A config that still has the example placeholder must refuse writes (503),
     # even when the caller presents that placeholder.

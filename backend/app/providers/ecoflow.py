@@ -26,6 +26,7 @@ import ssl
 import threading
 import time
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 _BASE = "https://api-e.ecoflow.com"
@@ -70,9 +71,9 @@ def _signed_get(path: str, access_key: str, secret_key: str,
 _CERT_TTL = 12 * 3600
 
 
-def _cert_cache_path() -> "Path":
-    from pathlib import Path
+def _cert_cache_path() -> Path:
     from .. import config as _config
+
     src = _config.source_path()
     return (src.parent if src else Path.cwd()) / "ecoflow_cert.json"
 
