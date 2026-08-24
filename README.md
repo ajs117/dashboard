@@ -2,7 +2,7 @@
 
 A touchscreen desk dashboard for a Raspberry Pi Zero 2W (1024×600). A Python/FastAPI
 backend proxies and caches all data; a no-build vanilla-JS frontend runs fullscreen in a
-Chromium kiosk.
+lightweight Cog/WPE kiosk.
 
 **Home** big clock + date · weather (with dew point, wind, sunrise/sunset, moon phase) ·
 auto-rotating world-clock carousel · stocks/indices strip · big app-launcher tiles.
@@ -18,9 +18,9 @@ auto-rotating world-clock carousel · stocks/indices strip · big app-launcher t
 ## Architecture
 
 ```
-Chromium kiosk (localhost:8080) ──HTTP──> FastAPI backend ──> Open-Meteo (weather)
+Cog/WPE kiosk (localhost:8080) ──HTTP──> FastAPI backend ──> Open-Meteo (weather)
    home / aircraft / radar / trains            cache +        RainViewer (radar)
-                                               config store    airplanes.live (aircraft)
+                                               config store    adsb.lol / airplanes.live (aircraft)
                                                                adsbdb / planespotters (route, photo)
                                                                Yahoo Finance (stocks)
                                                                Darwin SOAP (trains)
@@ -132,7 +132,7 @@ sudo raspi-config   # Performance -> Overlay File System -> enable
 ```
 The OS root becomes RAM-backed/read-only; a separately mounted **`/data` stays writable**
 for the app, config and git updates. A plain `/data` directory on `/` does not—its changes
-would disappear on reboot. The Chromium profile is kept in `/dev/shm` (tmpfs).
+would disappear on reboot. Cog/WPE keeps the kiosk lightweight on the Zero 2W.
 
 For the optional hardware watchdog, Wi-Fi recovery, persistent journal, and scheduled
 reboot units, run `sudo bash deploy/scripts/harden-pi.sh` after provisioning.

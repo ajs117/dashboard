@@ -23,7 +23,7 @@ say "Installing packages"
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
   curl git iproute2 iputils-ping iw network-manager python3-venv python3-pip \
-  chromium-browser cage seatd unclutter
+  cage cog seatd unclutter
 
 say "GitHub deploy key (read-only pull)"
 if [ ! -f "$DEPLOY_KEY" ]; then
