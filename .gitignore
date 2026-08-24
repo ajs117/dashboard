@@ -10,6 +10,10 @@ __pycache__/
 venv/
 *.egg-info/
 
+# Frontend test tooling
+node_modules/
+test-results/
+
 # Chromium kiosk profile / runtime state
 chromium-profile/
 *.log

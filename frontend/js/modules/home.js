@@ -73,6 +73,7 @@ export const home = {
     this._cdDay = null;
     this._houseIdx = 0;
     this._claudeIdx = 0;
+    this._launcherStop = null;
     this._solarD = this._indoorD = this._claudeD = null;   // don't reuse a stale mount's data
 
     el.innerHTML = `
@@ -98,7 +99,9 @@ export const home = {
               }<span class="tile-badge" hidden>!</span></button>`).join("")}
           </div>
           <button class="car-arrow" id="apps-next" aria-label="next">›</button>
+          <div class="tap-hint">press anywhere for apps</div>
         </div>
+        <div class="app-menu" id="app-menu" hidden></div>
 
         <div class="weather-card" id="wx"><div class="muted">Loading weather…</div></div>
 
@@ -112,22 +115,13 @@ export const home = {
           <span class="muted">Loading markets…</span></div></div>
       </div>`;
 
-    // Plain tap-to-open. Touch accuracy came good once a single press stopped being
-    // delivered twice (see isRealPress in app.js: WebKit's synthesized compatibility mouse
-    // event carried a drifted coordinate and fired tap() a second time). The tile you touch
-    // is now the tile that opens, so no selection gesture is needed.
-    el.querySelectorAll(".app-tile").forEach((b) =>
-      ctx.tap(b, () => ctx.go(b.dataset.route)));
-    const track = el.querySelector("#apps-track");
+    // The panel reliably reports that it was pressed, but not always where. First press
+    // opens a full-screen scanning list; the next press opens the highlighted module.
+    // Selection therefore depends on timing, not a drifting touch coordinate.
+    this._setupLauncher(el, ctx);
     const prevA = el.querySelector("#apps-prev"), nextA = el.querySelector("#apps-next");
-    ctx.tap(prevA, () => track.scrollBy({ left: -track.clientWidth * 0.7, behavior: "smooth" }));
-    ctx.tap(nextA, () => track.scrollBy({ left: track.clientWidth * 0.7, behavior: "smooth" }));
-    // Only show the paging arrows if the tiles actually overflow (with 5 they fit, so
-    // every app is reachable with a single tap - no scrolling on the iffy touch panel).
-    requestAnimationFrame(() => {
-      const overflow = track.scrollWidth > track.clientWidth + 4;
-      prevA.hidden = nextA.hidden = !overflow;
-    });
+    if (prevA) prevA.hidden = true;
+    if (nextA) nextA.hidden = true;
 
     const bigTime = el.querySelector("#big-time");
     const bigDate = el.querySelector("#big-date");
@@ -399,6 +393,70 @@ export const home = {
   // Full-screen app menu. The strip at the bottom is one big press target: pressing
   // anywhere on it opens this. Rows are full-width and ~90px tall, so a drifting X
   // coordinate cannot land on the wrong one - the failure mode we actually have.
+  _setupLauncher(el, ctx) {
+    const STEP_MS = 1600;
+    const LOCKOUT_MS = 900;
+    const LAPS = 3;
+    const menu = el.querySelector("#app-menu");
+    if (!menu) return;
+    const items = [...APPS, { route: null, ico: "✕", label: "Cancel" }];
+
+    let armed = false, idx = 0, steps = 0, lockoutUntil = 0;
+    let stepTimer = null;
+
+    const paint = () => {
+      menu.querySelectorAll(".am-row").forEach((row, i) =>
+        row.classList.toggle("on", i === idx));
+    };
+    const disarm = () => {
+      clearInterval(stepTimer);
+      stepTimer = null;
+      armed = false;
+      menu.hidden = true;
+    };
+    const arm = () => {
+      menu.innerHTML = `<div class="am-inner">
+        <div class="am-head">Press again to open the highlighted app</div>
+        ${items.map((item) => `
+          <div class="am-row${item.route ? "" : " am-cancel"}">
+            <span class="am-ico">${item.ico}</span><span class="am-lbl">${item.label}</span>
+            <span class="am-sub" data-route="${item.route || ""}"></span>
+          </div>`).join("")}
+        </div>`;
+      menu.querySelectorAll(".am-sub").forEach((sub) => {
+        const source = sub.dataset.route
+          && el.querySelector(`.tile-sub[data-route="${sub.dataset.route}"]`);
+        if (source) sub.textContent = source.textContent;
+      });
+      idx = 0;
+      steps = 0;
+      armed = true;
+      menu.hidden = false;
+      paint();
+      stepTimer = setInterval(() => {
+        idx = (idx + 1) % items.length;
+        steps += 1;
+        if (steps >= items.length * LAPS) { disarm(); return; }
+        paint();
+      }, STEP_MS);
+    };
+    const onPress = () => {
+      const now = Date.now();
+      if (now < lockoutUntil) return;       // compatibility-mouse event / panel bounce
+      lockoutUntil = now + LOCKOUT_MS;
+      if (!armed) { arm(); return; }
+      const chosen = items[idx];
+      disarm();
+      if (chosen && chosen.route) ctx.go(chosen.route);
+    };
+
+    const root = el.querySelector(".home") || el;
+    root.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      onPress();
+    });
+    this._launcherStop = disarm;
+  },
 
 
 
@@ -486,6 +544,8 @@ export const home = {
     clearInterval(this._homeTimer);
     clearInterval(this._camTimer);
     clearInterval(this._camListTimer);
+    if (this._launcherStop) this._launcherStop();
+    this._launcherStop = null;
     cancelAnimationFrame(this._tkRAF);
   },
 };

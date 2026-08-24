@@ -23,12 +23,6 @@ const RADIUS = 90;
 const SCHEME = "4/1_1";      // same colour scheme the map draws, so tiles are cache-shared
 const MAX_FRAMES = 8;        // most recent frames to consider (~80 min of history)
 const HORIZON = 12;          // prediction steps (× frame interval ≈ next 2 hours)
-// Motion is measured across frames this far apart, not adjacent ones: at ~10 min/frame a
-// typical front only shifts a couple of px per frame at z7, which the correlator can't
-// separate from cells growing/decaying (it was returning ~0 and predicting "dry" with rain
-// 40px upwind). A longer baseline gives a displacement big enough to measure, then we
-// divide back down to per-frame.
-const MOTION_SPAN = 3;
 
 const lon2x = (lon) => ((lon + 180) / 360) * 2 ** Z;
 const lat2y = (lat) =>
@@ -144,47 +138,47 @@ function centroid(grid) {
   return { x: sx / w, y: sy / w, n };
 }
 
-// Estimate cell motion (px/frame) by tracking how the echo's centroid moves between two
-// fields. This replaced a brute-force block correlator: on real data that search took 77s
-// on the Pi AND still returned (0,0), because a front entering the window looks like echo
-// appearing rather than shifting. The centroid moves measurably (observed x: 12->21->27->
-// 35->47 over consecutive frames as a front approached), it's O(pixels) instead of
-// O(pixels x search area), and it degrades to null instead of a bogus zero.
-function motionCentroid(prev, cur) {
-  const a = centroid(prev), b = centroid(cur);
-  if (!a || !b) return null;
-  return { vx: b.x - a.x, vy: b.y - a.y };
-}
+// Estimate cell motion (px/frame) from centroid movement across the recent frame series.
+// A brute-force block correlator was both slow and unstable when fronts grew or faded.
+// Centroids are O(pixels) and degrade to null instead of producing a bogus zero vector;
+// the agreement check below filters frames whose echo shapes change inconsistently.
+const median = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
 
-// (kept for reference / small-window use) Block-matching motion estimate.
-function motion(prev, cur) {
-  // SEARCH covers the displacement over MOTION_SPAN frames (not one), so it must be wide
-  // enough for a fast front: ~30px at z7 ≈ 90km/h over 3x10min.
-  const size = RADIUS * 2 + 1, SEARCH = 40, c = RADIUS;
-  const HALF = RADIUS - SEARCH - 2;       // correlation patch, kept inside the search range
-  const STEP = 3;                         // subsample: 4x cheaper on a Zero 2W, same answer
-  let best = Infinity, bvx = 0, bvy = 0;
-  for (let dy = -SEARCH; dy <= SEARCH; dy++) {
-    for (let dx = -SEARCH; dx <= SEARCH; dx++) {
-      let err = 0, n = 0, overlap = 0;
-      // Correlate over most of the window so a front that has moved 20-40px still has
-      // material to match against (scaled to RADIUS, not a fixed ±18px).
-      for (let y = c - HALF; y <= c + HALF; y += STEP) {
-        for (let x = c - HALF; x <= c + HALF; x += STEP) {
-          const a = at(cur, x, y), b = at(prev, x - dx, y - dy);
-          if (a > 0 || b > 0) overlap++;
-          err += Math.abs(a - b); n++;
-        }
-      }
-      // With little echo in view any shift matches equally well, so a plain mean would pick
-      // an arbitrary (often zero) vector. Require some echo, and keep the tie-break gentle
-      // relative to the longer baseline.
-      if (overlap < 12) continue;
-      err = err / n + 0.0015 * Math.hypot(dx, dy);   // prefer the smaller motion on ties
-      if (err < best) { best = err; bvx = dx; bvy = dy; }
+// Use the median of every consecutive valid centroid displacement. The old implementation
+// compared one arbitrarily chosen old frame with the newest; one cell appearing at the edge
+// could swing that single vector across the map and produce a very confident, very wrong
+// line. Requiring a majority of frame-to-frame vectors to agree rejects that failure mode.
+function estimateMotion(fields) {
+  const samples = [];
+  let previous = null, previousIndex = -1;
+  fields.forEach((field, index) => {
+    const point = field ? centroid(field) : null;
+    if (!point) return;
+    if (previous) {
+      const gap = index - previousIndex;
+      if (gap > 0) samples.push({
+        vx: (point.x - previous.x) / gap,
+        vy: (point.y - previous.y) / gap,
+      });
     }
-  }
-  return { vx: bvx, vy: bvy };
+    previous = point;
+    previousIndex = index;
+  });
+  if (samples.length < 2) return null;
+  const vx = median(samples.map((s) => s.vx));
+  const vy = median(samples.map((s) => s.vy));
+  const magnitude = Math.hypot(vx, vy);
+  if (magnitude < 0.1) return null;
+  const agreeing = samples.filter((s) => {
+    const sm = Math.hypot(s.vx, s.vy);
+    return sm > 0.05 && (s.vx * vx + s.vy * vy) / (sm * magnitude) >= 0;
+  }).length;
+  if (agreeing < Math.ceil(samples.length * 0.6)) return null;
+  return { vx, vy, samples: samples.length };
 }
 
 const compass16 = (deg) => {
@@ -209,25 +203,29 @@ export async function radarNowcast(env, lat, lon) {
     for (const f of use) fields.push(await sampleField(env.host, f.path, gx, gy));
     const last = fields[fields.length - 1];
     if (!last) return null;
-    // Motion over a MOTION_SPAN-frame baseline (see the constant): find the newest valid
-    // field that far back, measure the total displacement, then divide down to per-frame.
-    let prev = null, span = 0;
-    for (let i = fields.length - 1 - MOTION_SPAN; i >= 0; i--) {
-      if (fields[i]) { prev = fields[i]; span = (fields.length - 1) - i; break; }
-    }
-    if (!prev) {   // not enough history for a long baseline - fall back to the newest pair
-      for (let i = fields.length - 2; i >= 0; i--) {
-        if (fields[i]) { prev = fields[i]; span = (fields.length - 1) - i; break; }
-      }
-    }
-    const raw = prev ? motionCentroid(prev, last) : null;
-    const vx = raw && span ? raw.vx / span : 0;
-    const vy = raw && span ? raw.vy / span : 0;
-
     const stepMin = Math.max(
       5, Math.round((use[use.length - 1].time - use[use.length - 2].time) / 60) || 10);
+    const raw = estimateMotion(fields);
+    let vx = raw ? raw.vx : 0;
+    let vy = raw ? raw.vy : 0;
+    const metresPerPixel = 156543.03392 * Math.cos((lat * Math.PI) / 180) / 2 ** Z;
+    let speedKmh = Math.hypot(vx, vy) * metresPerPixel / 1000 * (60 / stepMin);
+    // A near-zero vector cannot support an ETA, while a faster result is a changing storm
+    // shape masquerading as translation. In either case use the model forecast and draw no
+    // line instead of presenting invented precision.
+    if (speedKmh < 2 || speedKmh > 130) {
+      vx = 0;
+      vy = 0;
+      speedKmh = 0;
+    }
+    const canPredict = Boolean(vx || vy);
     const nowV = at(last, c, c);
     const raining = levelOf(nowV) !== "none";
+
+    // If it is dry and the observed frames do not yield trustworthy movement, this radar
+    // data says nothing about the future. Returning null lets callers use Open-Meteo rather
+    // than repeating the current dry pixel for two hours and claiming a forecast.
+    if (!canPredict && !raining) return null;
 
     // Advect: intensity expected at the point in k steps = what's k*velocity upwind now.
     // Take the strongest value in a small patch around that upwind point, not a single
@@ -244,7 +242,10 @@ export async function radarNowcast(env, lat, lon) {
       return peak;
     };
     const future = [nowV];
-    for (let k = 1; k <= HORIZON; k++) future.push(upwindAt(k));
+    const maxComponent = Math.max(Math.abs(vx), Math.abs(vy));
+    const availableSteps = canPredict
+      ? Math.min(HORIZON, Math.floor((RADIUS - 4) / maxComponent)) : 0;
+    for (let k = 1; k <= availableSteps; k++) future.push(upwindAt(k));
 
     let startIdx = null, stopIdx = null;
     if (raining) {
@@ -255,7 +256,7 @@ export async function radarNowcast(env, lat, lon) {
 
     // Direction the weather is coming FROM (opposite the motion vector; screen y is down).
     let fromCompass = null;
-    if (vx || vy) fromCompass = compass16((Math.atan2(-vx, vy) * 180) / Math.PI);
+    if (canPredict) fromCompass = compass16((Math.atan2(-vx, vy) * 180) / Math.PI);
 
     const timeline = future.map((v) => ({ mm: Math.round(v * 100) / 100, prob: null }));
 
@@ -264,56 +265,36 @@ export async function radarNowcast(env, lat, lon) {
     // draw a line to. Only meaningful if the field is actually moving and there IS echo
     // there - otherwise the line would point confidently at empty sky.
     let inbound = null;
-    if (vx || vy) {
+    if (canPredict) {
       // Point at the cell that will actually REACH you: the first future step with rain in
       // it, within the next hour. (Using a fixed 60-minute point instead meant that when
       // rain was due in 20 minutes the hour mark was clear sky, so no line was drawn at all
       // - technically correct, useless in practice.) If it's already raining, look ahead to
       // whatever is next in the hour.
       const kMax = Math.max(1, Math.round(60 / stepMin));
+      const limit = Math.min(kMax, future.length - 1);
       let kTarget = null;
-      for (let k = 1; k <= Math.min(kMax, HORIZON); k++) {
-        if (levelOf(future[k]) !== "none") { kTarget = k; break; }
+      for (let k = 1; k <= limit; k++) {
+        if (levelOf(future[k]) !== "none") {
+          kTarget = k;
+          if (!raining) break;            // dry: nearest inbound echo gives the start ETA
+        }
       }
-      if (kTarget == null && raining) kTarget = kMax;    // raining now: show the hour mark
-      if (kTarget == null) kTarget = 0;                  // nothing inbound -> skipped below
-      const sx = gx - vx * kTarget, sy = gy - vy * kTarget;
-      const intensityThere = kTarget
-        ? at(last, Math.round(c - vx * kTarget), Math.round(c - vy * kTarget)) : 0;
-      inbound = {
-        lat: y2lat(sy),
-        lon: x2lon(sx),
-        minutes: Math.round(kTarget * stepMin),
-        level: kTarget ? levelOf(intensityThere) : "none",
-        // px/frame -> km/h, for a human-readable speed on the map label.
-        speed_kmh: Math.round(
-          (Math.hypot(vx, vy) * (156543.03392 * Math.cos((lat * Math.PI) / 180) / 2 ** Z))
-          / 1000 * (60 / stepMin)),
-      };
+      if (kTarget != null) {
+        const sx = gx - vx * kTarget, sy = gy - vy * kTarget;
+        const intensityThere = upwindAt(kTarget);   // same 7×7 sample used by the prediction
+        inbound = {
+          lat: y2lat(sy),
+          lon: x2lon(sx),
+          minutes: Math.round(kTarget * stepMin),
+          level: levelOf(intensityThere),
+          speed_kmh: Math.round(speedKmh),
+        };
+      }
     }
-
-    // Movement of the radar field itself, reported whenever we can measure it - it is a
-    // "which way is the weather going" indicator, so it must NOT be gated on rain being
-    // present or inbound. Direction is the direction of travel (where cells are heading).
-    const kHour = 60 / stepMin;
-    const motionOut = (vx || vy)
-      ? {
-        dx: vx, dy: vy,                       // px/frame at z7; screen y is down
-        // Where the weather that reaches us in an hour is sitting RIGHT NOW: one hour of
-        // travel upwind. Lets the map draw a line whose tip actually means "60 minutes
-        // away", rather than an arbitrary fixed length.
-        hour_lat: y2lat(gy - vy * kHour),
-        hour_lon: x2lon(gx - vx * kHour),
-        bearing: compass16((Math.atan2(vx, -vy) * 180) / Math.PI),
-        speed_kmh: Math.round(
-          (Math.hypot(vx, vy) * (156543.03392 * Math.cos((lat * Math.PI) / 180) / 2 ** Z))
-          / 1000 * (60 / stepMin)),
-      }
-      : null;
 
     return {
       inbound,
-      motion: motionOut,
       raining_now: raining,
       level: raining ? levelOf(nowV) : levelOf(Math.max(...future)),
       status: raining ? "raining" : (startIdx != null ? "starting" : "dry"),
@@ -321,6 +302,7 @@ export async function radarNowcast(env, lat, lon) {
       minutes_until_stop: stopIdx != null ? stopIdx * stepMin : null,
       from_compass: fromCompass,
       peak_mm: Math.max(...future),
+      horizon_minutes: (future.length - 1) * stepMin,
       timeline,
       source: "radar",
     };
@@ -328,3 +310,5 @@ export async function radarNowcast(env, lat, lon) {
     return null;     // never break the page over a nowcast
   }
 }
+
+export const __test = { RADIUS, intensity, levelOf, centroid, estimateMotion };

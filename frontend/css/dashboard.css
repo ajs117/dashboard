@@ -48,7 +48,10 @@ html, body {
 .home {
   display: grid; height: 100%; padding: 16px; gap: 14px;
   grid-template-columns: 1.45fr 1fr;
-  grid-template-rows: auto auto auto 1fr auto;
+  /* Every row is geometrically stable. In particular, the Claude tile sometimes has a
+     usage bar (four children) and sometimes does not (three); an auto-sized row made the
+     launcher tiles visibly change shape every time that content flipped. */
+  grid-template-rows: 104px 114px 104px minmax(0, 1fr) 46px;
 }
 .clock-card { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: 14px; }
 .clock-main { flex: 1; min-width: 0; }
@@ -85,6 +88,30 @@ html, body {
   transition: transform .08s, background .12s;
 }
 .app-tile:active { transform: scale(.97); background: var(--panel-2); }
+/* Tile coordinates on the kiosk digitiser drift. The whole home view is the launcher input
+   target; tiles are display-only until the full-screen scanning selector is shown. */
+.app-tile { pointer-events: none; }
+.tap-hint { position: absolute; top: -1px; right: 6px; font-size: 11px;
+  color: var(--muted); pointer-events: none; }
+
+/* Two-press scanning selector: first press opens it, second opens the highlighted row. */
+.app-menu { position: absolute; inset: 0; z-index: 900; background: rgba(13,17,23,.97);
+  display: flex; align-items: center; justify-content: center; }
+.app-menu[hidden] { display: none; }
+.am-inner { width: 92%; max-width: 900px; display: flex; flex-direction: column; gap: 8px; }
+.am-head { font-size: 15px; color: var(--muted); font-weight: 600; padding-left: 4px; }
+.am-row { display: flex; align-items: center; gap: 18px; width: 100%; min-height: 72px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+  color: var(--fg); padding: 0 26px; font-size: 26px; font-weight: 600; text-align: left;
+  opacity: .45; transition: opacity .12s, transform .12s; }
+.am-row.on { opacity: 1; background: var(--panel-2); border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent), 0 8px 22px rgba(0,0,0,.5); transform: scale(1.02); }
+.am-ico { font-size: 38px; line-height: 1; flex: 0 0 auto; }
+.am-lbl { flex: 0 0 auto; }
+.am-sub { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.am-sub:empty { display: none; }
+.am-cancel { justify-content: center; min-height: 56px; font-size: 19px; color: var(--muted); }
 /* touch-action:none stops WebKit synthesising its own fast-click/scroll gestures on the
    strip. Keeping it (with preventDefault on the press) is what made tap accuracy reliable
    on this panel - without it WebKit gesture handling competed with ours. */
@@ -157,7 +184,7 @@ html, body {
 /* Left-column row 3: world clock (cycling) + Indoor (Hive) + Solar (EcoFlow) tiles. */
 .home-strip { grid-column: 1; grid-row: 3; display: flex; gap: 12px; }
 .hs-tile { flex: 1; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 16px; padding: 12px 14px; text-align: center; overflow: hidden;
+  border-radius: 16px; padding: 12px 14px; text-align: center; overflow: hidden; min-height: 0;
   display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 .hs-k { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden;
         text-overflow: ellipsis; }
