@@ -1,19 +1,17 @@
-"""Remote-control + settings API for the on-network control page.
-
-No auth by request (trusted home LAN). As a safety net, secret values (tokens/keys/PII)
-are write-only: GET masks them, POST keeps the existing value unless a new one is sent.
-"""
+"""Admin-authenticated remote-control and settings API for the LAN control page."""
 from __future__ import annotations
 
 import asyncio
 import subprocess
-from typing import Any
+from copy import deepcopy
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, model_validator
 
 from .. import config, remote
 from ..cache import cache
+from .config_api import require_admin
 
 router = APIRouter(prefix="/api", tags=["remote"])
 
@@ -51,17 +49,30 @@ async def get_cmd() -> dict[str, Any]:
 
 
 class CmdIn(BaseModel):
-    action: str                 # "go" | "reload"
+    action: Literal["go", "reload"]
     value: str | None = None    # for "go": the route (home/aircraft/radar/trains/tracker)
+
+    @model_validator(mode="after")
+    def valid_route(self):
+        if self.action == "go" and self.value not in {
+            "home", "aircraft", "radar", "trains", "tracker", "ring",
+        }:
+            raise ValueError("invalid dashboard route")
+        return self
 
 
 @router.post("/remote/cmd")
-async def post_cmd(body: CmdIn) -> dict[str, Any]:
+async def post_cmd(
+    body: CmdIn,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin(x_admin_token)
     return remote.set_cmd(body.action, body.value)
 
 
 @router.post("/remote/reboot")
-async def reboot() -> dict[str, Any]:
+async def reboot(x_admin_token: str | None = Header(default=None)) -> dict[str, Any]:
+    require_admin(x_admin_token)
     try:
         await asyncio.to_thread(
             subprocess.run,
@@ -76,14 +87,28 @@ async def reboot() -> dict[str, Any]:
 
 # --- full settings (secrets write-only) ---------------------------------------------
 @router.get("/admin/config")
-async def get_full_config() -> dict[str, Any]:
+async def get_full_config(
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin(x_admin_token)
     return _mask(config.get())
 
 
 @router.post("/admin/config")
-async def patch_full_config(body: dict[str, Any]) -> dict[str, Any]:
+async def patch_full_config(
+    body: dict[str, Any],
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin(x_admin_token)
     data = config.get()
-    _merge(data, body)
+    candidate = deepcopy(data)
+    _merge(candidate, body)
+    try:
+        config.validate(candidate)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    data.clear()
+    data.update(candidate)
     config.save()
     cache.clear()
     return {"ok": True, "config": _mask(config.get())}

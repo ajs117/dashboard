@@ -8,9 +8,10 @@ Mutating endpoints require the admin token via the X-Admin-Token header.
 from __future__ import annotations
 
 import hmac
+from copy import deepcopy
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
@@ -37,6 +38,14 @@ def require_admin(token: str | None) -> None:
         raise HTTPException(status_code=403, detail="Invalid or missing admin token")
 
 
+def require_admin_or_local(request: Request, token: str | None) -> None:
+    """Permit the kiosk on loopback; require the admin token from LAN clients."""
+    host = request.client.host if request.client else ""
+    if host in {"127.0.0.1", "::1", "localhost"}:
+        return
+    require_admin(token)
+
+
 class LocationIn(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
@@ -58,13 +67,20 @@ async def set_location(
 ) -> dict[str, Any]:
     require_admin(x_admin_token)
     data = config.get()
-    loc = data.setdefault("location", {})
+    candidate = deepcopy(data)
+    loc = candidate.setdefault("location", {})
     loc["lat"] = body.lat
     loc["lon"] = body.lon
     if body.label is not None:
         loc["label"] = body.label
     if body.timezone is not None:
         loc["timezone"] = body.timezone
+    try:
+        config.validate(candidate)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    data.clear()
+    data.update(candidate)
     config.save()
     cache.clear()
     return {"ok": True, "location": loc}
@@ -77,17 +93,24 @@ async def patch_settings(
 ) -> dict[str, Any]:
     require_admin(x_admin_token)
     data = config.get()
+    candidate = deepcopy(data)
     # Only allow patching known non-secret top-level sections.
     allowed = {"units", "world_clocks", "aircraft", "refresh"}
     for key, value in body.items():
         if key in allowed:
-            data[key] = value
+            candidate[key] = value
         elif key == "trains":
             # allow station/destination/rows but never the token
-            t = data.setdefault("trains", {})
+            t = candidate.setdefault("trains", {})
             for k in ("station_crs", "destination_crs", "rows", "enabled"):
                 if k in value:
                     t[k] = value[k]
+    try:
+        config.validate(candidate)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    data.clear()
+    data.update(candidate)
     config.save()
     cache.clear()
     return {"ok": True, "config": config.public()}

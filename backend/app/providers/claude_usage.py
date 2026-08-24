@@ -73,6 +73,7 @@ def store(payload: dict[str, Any]) -> dict[str, Any]:
     path = _store_path()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(record), encoding="utf-8")
+    os.chmod(tmp, 0o600)
     os.replace(tmp, path)        # atomic: a reader never sees a half-written file
     return record
 

@@ -4,8 +4,8 @@
 #
 # Assumes:
 #   - Raspberry Pi OS (Bookworm). User is `pi` (uid 1000).
-#   - A writable data location at /data (a separate partition is ideal; a plain
-#     directory works too). The repo lives at /data/dashboard.
+#   - A writable data location at /data. A plain directory works for normal operation;
+#     it must be a separate mount before enabling Raspberry Pi OS's root overlay.
 #   - You will add the printed deploy key to GitHub and edit /data/config.yaml.
 #
 # Re-run any time; each step checks before acting.
@@ -22,14 +22,30 @@ say() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 say "Installing packages"
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
-  git python3-venv python3-pip chromium-browser cage seatd unclutter
+  curl git iproute2 iputils-ping iw network-manager python3-venv python3-pip \
+  chromium-browser cage seatd unclutter
+
+say "GitHub deploy key (read-only pull)"
+if [ ! -f "$DEPLOY_KEY" ]; then
+  mkdir -p "$(dirname "$DEPLOY_KEY")"
+  chmod 700 "$(dirname "$DEPLOY_KEY")"
+  ssh-keygen -t ed25519 -N "" -f "$DEPLOY_KEY" -C "dashboard-deploy@$(hostname)"
+fi
+echo "Add THIS public key as a *read-only* Deploy Key on your GitHub repo:"
+echo "  Settings -> Deploy keys -> Add deploy key"
+echo "-------------------------------------------------------------"
+cat "${DEPLOY_KEY}.pub"
+echo "-------------------------------------------------------------"
 
 say "Preparing $REPO_DIR"
 sudo mkdir -p "$(dirname "$REPO_DIR")"
 sudo chown -R "$USER:$USER" "$(dirname "$REPO_DIR")"
 if [ ! -d "$REPO_DIR/.git" ]; then
   if [ -n "$REPO_URL" ]; then
-    git clone "$REPO_URL" "$REPO_DIR"
+    echo "For a private repository, register the key printed above before continuing."
+    read -r -p "Press Enter when the deploy key is registered (or Ctrl-C to stop): "
+    GIT_SSH_COMMAND="ssh -i $DEPLOY_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+      git clone "$REPO_URL" "$REPO_DIR"
   elif [ "$HERE" != "$REPO_DIR" ]; then
     echo "No git checkout at $REPO_DIR. Set DASHBOARD_REPO_URL=... and re-run,"
     echo "or move this checkout to $REPO_DIR."
@@ -52,19 +68,10 @@ else
   echo "$CONFIG already exists, leaving it."
 fi
 
-say "GitHub deploy key (read-only pull)"
-if [ ! -f "$DEPLOY_KEY" ]; then
-  ssh-keygen -t ed25519 -N "" -f "$DEPLOY_KEY" -C "dashboard-deploy@$(hostname)"
-fi
-echo "Add THIS public key as a *read-only* Deploy Key on your GitHub repo:"
-echo "  Settings -> Deploy keys -> Add deploy key"
-echo "-------------------------------------------------------------"
-cat "${DEPLOY_KEY}.pub"
-echo "-------------------------------------------------------------"
-
 say "Installing systemd units + sudoers"
 sudo cp "$REPO_DIR"/deploy/systemd/dashboard-*.service /etc/systemd/system/
 sudo cp "$REPO_DIR"/deploy/systemd/dashboard-update.timer /etc/systemd/system/
+sudo visudo -cf "$REPO_DIR/deploy/sudoers/dashboard"
 sudo install -m 0440 -o root -g root "$REPO_DIR/deploy/sudoers/dashboard" /etc/sudoers.d/dashboard
 sudo systemctl daemon-reload
 sudo systemctl enable --now dashboard-backend.service

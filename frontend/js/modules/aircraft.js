@@ -17,6 +17,9 @@ export const aircraft = {
     this._markers = {};
     this._selected = null;
     this._follow = true;
+    this._focus = false;
+    this._wfMarker = null;
+    this._data = null;
     el.innerHTML = `
       <div class="ac-layout">
         <div id="ac-map" class="full-map"></div>
@@ -66,7 +69,7 @@ export const aircraft = {
       try {
         const env = await ctx.api("/api/flights/watch");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
-        this._renderWatch(el, (env.data && env.data.flights) || []);
+        this._renderWatch(el, ctx, (env.data && env.data.flights) || []);
       } catch (e) { /* panel just stays hidden */ }
     };
 
@@ -80,7 +83,7 @@ export const aircraft = {
 
   // Panel for the watched flights: route, progress bar, ETA. Hidden entirely when the
   // watch list is empty, so the page is unchanged for anyone not using the feature.
-  _renderWatch(el, flights) {
+  _renderWatch(el, ctx, flights) {
     const box = el.querySelector("#ac-watch");
     if (!box) return;
     // Focus mode: while a flight is being watched, the page is ABOUT that flight. The
@@ -88,10 +91,24 @@ export const aircraft = {
     // you're following family, and dropping them also takes a lot of weight off a 512MB
     // Pi (this page was the one logging WebKit load failures).
     const layout = el.querySelector(".ac-layout");
+    const wasFocused = this._focus;
     this._focus = flights.length > 0;
     if (layout) layout.classList.toggle("focus", this._focus);
-    if (!flights.length) { box.hidden = true; box.innerHTML = ""; return; }
+    if (!flights.length) {
+      if (this._wfMarker && this._map) this._map.removeLayer(this._wfMarker);
+      this._wfMarker = null;
+      box.hidden = true;
+      box.innerHTML = "";
+      if (wasFocused && this._data) this._render(el, ctx);
+      return;
+    }
     box.hidden = false;
+    // Remove local traffic as soon as focus mode starts, rather than leaving its markers
+    // over the watched flight until the next nearby-aircraft refresh.
+    for (const hex of Object.keys(this._markers)) {
+      if (this._map) this._map.removeLayer(this._markers[hex]);
+      delete this._markers[hex];
+    }
 
     // Put the map on the watched flight, wherever in the world it is.
     const pos = flights.find((f) => f.lat != null && f.lon != null);
@@ -184,8 +201,7 @@ export const aircraft = {
 
     // Tap a watched flight -> zoom the map to it and reveal the full detail block.
     box.querySelectorAll(".wf").forEach((row) => {
-      row.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
+      ctx.tapRow(row, () => {
         const open = row.classList.toggle("open");
         const lat = parseFloat(row.dataset.lat), lon = parseFloat(row.dataset.lon);
         if (open && this._map && Number.isFinite(lat) && Number.isFinite(lon)) {
@@ -459,5 +475,8 @@ export const aircraft = {
     clearInterval(this._watchTimer);
     if (this._map) { this._map.remove(); this._map = null; }
     this._markers = {};
+    this._wfMarker = null;
+    this._focus = false;
+    this._data = null;
   },
 };

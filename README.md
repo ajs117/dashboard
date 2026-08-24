@@ -59,6 +59,8 @@ cp deploy/config.example.yaml config.yaml      # local dev
 Key fields: `location` (lat/lon/timezone — no GPS, so this is how the Pi knows where it
 is), `trains.token` / `station_crs` / `destination_crs`, `world_clocks`, `stocks.symbols`,
 `admin_token` (gates the location/settings POST endpoints), and cache/refresh intervals.
+The phone remote asks for this token before it can change settings, drive the screen, or
+reboot the Pi; it stores it only for the lifetime of that browser tab.
 
 Push a new location at runtime without editing the file:
 
@@ -83,6 +85,7 @@ mocked with `httpx.MockTransport`):
 
 ```bash
 cd backend && .venv/Scripts/python -m pytest -q
+cd ../frontend && npm test
 ```
 
 ## Deploy to the Pi
@@ -104,24 +107,35 @@ DASHBOARD_REPO_URL=git@github.com:<you>/dashboard.git \
   bash /data/dashboard/deploy/scripts/setup-pi.sh
 ```
 `setup-pi.sh` (idempotent) installs packages, creates the venv, generates a **read-only
-GitHub deploy key** (printed — add it under repo Settings → Deploy keys), seeds
+GitHub deploy key** before cloning (it pauses so you can add the printed key under repo
+Settings → Deploy keys), seeds
 `/data/config.yaml`, and installs/enables the systemd services. Then edit
 `/data/config.yaml` (token, station, location, `admin_token`).
+
+If the repository is not present yet, run the setup script from a temporary bootstrap
+copy; a script inside an un-cloned private repository cannot invoke itself.
 
 ### 3. Auto-update (git poll)
 `dashboard-update.timer` runs `deploy/scripts/update.sh` every ~2 minutes: it `git fetch`es,
 and if `origin/main` moved, hard-resets to it, reinstalls deps only if
 `requirements.txt` changed, and restarts the services. Just push to `main` to deploy.
 
+Changes under `deploy/systemd/` or `deploy/sudoers/` require re-running `setup-pi.sh` with
+sudo; the unprivileged updater deliberately cannot install root policy.
+
 ### 4. Power-off resilience (do this LAST)
-After everything works, enable the read-only overlay root filesystem so yanking the power
-can't corrupt the SD card:
+First verify that `/data` is a separate writable mount (`findmnt /data` must show `/data`,
+not `/`). Only then enable the read-only overlay root filesystem so yanking the power can't
+corrupt the SD card:
 ```bash
 sudo raspi-config   # Performance -> Overlay File System -> enable
 ```
-The OS root becomes RAM-backed/read-only; **`/data` stays writable** for the app, config and
-git updates. The Chromium profile is kept in `/dev/shm` (tmpfs) so the kiosk writes nothing
-to the card either.
+The OS root becomes RAM-backed/read-only; a separately mounted **`/data` stays writable**
+for the app, config and git updates. A plain `/data` directory on `/` does not—its changes
+would disappear on reboot. The Chromium profile is kept in `/dev/shm` (tmpfs).
+
+For the optional hardware watchdog, Wi-Fi recovery, persistent journal, and scheduled
+reboot units, run `sudo bash deploy/scripts/harden-pi.sh` after provisioning.
 
 ## Layout
 
@@ -133,7 +147,7 @@ backend/app/
   providers/         weather, radar, radar_forecast, aircraft, route, photos,
                      stocks, trains (Darwin SOAP), geo + moon helpers
   routers/           api.py (data), config_api.py (config/location)
-  tests/             offline pytest suite (httpx MockTransport)
+backend/tests/        offline pytest suite (httpx MockTransport)
 frontend/            index.html, css/, js/app.js + js/modules/*, vendored Leaflet
 deploy/              config.example.yaml, systemd units, sudoers, setup/update scripts
 ```

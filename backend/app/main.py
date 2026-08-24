@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from . import config, trackers
-from .providers import aclose, ecoflow
+from .providers import aclose, ecoflow, ring
 from .routers import api, config_api, remote_api, trackers_api
 
 _FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -66,6 +66,7 @@ async def lifespan(app: FastAPI):
         with contextlib.suppress(asyncio.CancelledError):
             await t
     ecoflow.stop()
+    await ring.aclose()
     await aclose()
 
 

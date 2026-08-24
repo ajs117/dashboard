@@ -90,3 +90,10 @@ def test_tracker_unknown_id(fresh_trackers):
         with pytest.raises(KeyError):
             await fresh_trackers.set_value("nope", 1.0)
     asyncio.run(go())
+
+
+def test_tracker_rejects_non_finite_value(fresh_trackers):
+    async def go():
+        with pytest.raises(ValueError, match="finite"):
+            await fresh_trackers.set_value("holiday", float("nan"))
+    asyncio.run(go())

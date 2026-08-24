@@ -98,6 +98,36 @@ def test_location_update_with_token(client):
     assert client.get("/api/config").json()["location"]["label"] == "New"
 
 
+def test_remote_admin_endpoints_require_token(client):
+    assert client.get("/api/admin/config").status_code == 403
+    assert client.post("/api/admin/config", json={"units": {}}).status_code == 403
+    assert client.post("/api/remote/cmd", json={"action": "reload"}).status_code == 403
+    assert client.post("/api/remote/reboot").status_code == 403
+
+
+def test_remote_command_validates_action_and_route(client):
+    headers = {"X-Admin-Token": "hunter2"}
+    assert client.post("/api/remote/cmd", json={"action": "nope"}, headers=headers).status_code == 422
+    assert client.post("/api/remote/cmd", json={"action": "go", "value": "nope"},
+                       headers=headers).status_code == 422
+    assert client.post("/api/remote/cmd", json={"action": "go", "value": "radar"},
+                       headers=headers).status_code == 200
+
+
+def test_full_config_rejects_breaking_shape_without_mutating(client):
+    headers = {"X-Admin-Token": "hunter2"}
+    r = client.post("/api/admin/config", json={"aircraft": None}, headers=headers)
+    assert r.status_code == 422
+    assert client.get("/api/config").json()["aircraft"]["enabled"] is True
+
+
+def test_tracker_mutation_requires_admin_from_non_loopback(client):
+    assert client.post("/api/trackers/holiday/value", json={"value": 1}).status_code == 403
+    headers = {"X-Admin-Token": "hunter2"}
+    assert client.post("/api/trackers/holiday/value", json={"value": "NaN"},
+                       headers=headers).status_code == 422
+
+
 # --- Claude Pro usage push ------------------------------------------------------------
 def test_claude_usage_push_requires_token(client):
     body = {"five_hour": {"utilization": 12.0}, "seven_day": {"utilization": 30.0}}

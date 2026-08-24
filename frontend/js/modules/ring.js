@@ -13,11 +13,15 @@ function agoText(sec) {
 
 export const ring = {
   _timer: null, _cams: [], _interval: 30000, _sel: null,
+  _run: 0, _refreshing: false, _el: null,
 
   async mount(el, ctx) {
     const cfg = ctx.config || {};
     this._interval = Math.max(5, cfg.ring?.interval_seconds || 30) * 1000;
     this._sel = null;
+    this._refreshing = false;
+    this._el = el;
+    const run = ++this._run;
     el.innerHTML = `<div class="ring" id="ring">
       <div class="ring-loading muted">Loading cameras…</div></div>`;
 
@@ -41,7 +45,7 @@ export const ring = {
             d.error ? `<br><span class="ring-hint">${esc(d.error)}</span>` : ""}</div>`;
           return false;
         }
-        this._renderGrid(el, ctx);
+        this._renderGrid(el, ctx, run);
         return true;
       } catch (e) {
         root().innerHTML = `<div class="err ring-loading">Cameras unavailable</div>`;
@@ -53,10 +57,10 @@ export const ring = {
     if (!ok) return;
     if (ctx.isCurrent && !ctx.isCurrent()) return;
     // Refresh the images (not the camera list) on the configured interval.
-    this._timer = setInterval(() => this._refreshImages(el), this._interval);
+    this._timer = setInterval(() => this._refreshImages(el, run), this._interval);
   },
 
-  _renderGrid(el, ctx) {
+  _renderGrid(el, ctx, run) {
     const root = el.querySelector("#ring");
     if (!root) return;
     const cards = this._cams.map((c) => {
@@ -84,7 +88,7 @@ export const ring = {
         root.querySelector(".ring-grid").classList.toggle("has-big", !!this._sel);
       });
     });
-    this._refreshImages(el);
+    this._refreshImages(el, run);
   },
 
   // Cache-bust each fetch so WebKit doesn't reuse the previous frame; the backend caches
@@ -92,46 +96,69 @@ export const ring = {
   // Fetch each snapshot via fetch() (not a bare <img src>) so we can read the
   // X-Snapshot-Age header and show how old the frame actually is — a wired camera's
   // battery "100%" told you nothing, whereas staleness is the thing you want to trust.
-  async _refreshImages(el) {
+  async _refreshImages(el, run) {
+    if (run !== this._run || this._refreshing) return;
+    this._refreshing = true;
     const stamp = Date.now();
     const imgs = Array.from(el.querySelectorAll("img[data-cam]"));
-    for (const img of imgs) {
-      const id = img.dataset.cam;
-      const url = `/api/ring/snapshot/${encodeURIComponent(id)}?t=${stamp}`;
-      const ageEl = el.querySelector(`.rc-age[data-age="${id}"]`);
-      try {
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error(String(res.status));
-        const age = parseInt(res.headers.get("X-Snapshot-Age") || "", 10);
-        const blob = await res.blob();
-        const objUrl = URL.createObjectURL(blob);
-        // Decode before swapping so the visible frame never blanks mid-refresh.
-        await new Promise((done) => {
-          const pre = new Image();
-          pre.onload = pre.onerror = done;
-          pre.src = objUrl;
-        });
-        if (img.dataset.objurl) URL.revokeObjectURL(img.dataset.objurl);  // free the old one
-        img.dataset.objurl = objUrl;
-        img.src = objUrl;
-        img.classList.add("ready");
-        if (ageEl) ageEl.textContent = Number.isFinite(age) ? agoText(age) : "now";
-      } catch (e) {
-        if (ageEl) ageEl.textContent = "no image";
-        const wrap = img.closest(".rc-img");
-        if (wrap && !wrap.querySelector(".rc-off") && !img.classList.contains("ready")) {
-          wrap.innerHTML = `<div class="rc-off">No image</div>`;
+    try {
+      for (const img of imgs) {
+        const id = img.dataset.cam;
+        const url = `/api/ring/snapshot/${encodeURIComponent(id)}?t=${stamp}`;
+        const ageEl = Array.from(el.querySelectorAll(".rc-age[data-age]"))
+          .find((node) => node.dataset.age === id);
+        let objUrl = null;
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) throw new Error(String(res.status));
+          const age = parseInt(res.headers.get("X-Snapshot-Age") || "", 10);
+          const blob = await res.blob();
+          if (run !== this._run || !img.isConnected) continue;
+          objUrl = URL.createObjectURL(blob);
+          // Decode before swapping so the visible frame never blanks mid-refresh.
+          const decoded = await new Promise((done) => {
+            const pre = new Image();
+            pre.onload = () => done(true);
+            pre.onerror = () => done(false);
+            pre.src = objUrl;
+          });
+          if (!decoded) throw new Error("snapshot decode failed");
+          if (run !== this._run || !img.isConnected) {
+            URL.revokeObjectURL(objUrl);
+            objUrl = null;
+            continue;
+          }
+          if (img.dataset.objurl) URL.revokeObjectURL(img.dataset.objurl);
+          const nextUrl = objUrl;
+          img.dataset.objurl = nextUrl;
+          img.src = nextUrl;
+          objUrl = null;                            // ownership transferred to the <img>
+          img.classList.add("ready");
+          if (ageEl) ageEl.textContent = Number.isFinite(age) ? agoText(age) : "now";
+        } catch (e) {
+          if (objUrl) URL.revokeObjectURL(objUrl);
+          if (run !== this._run || !img.isConnected) continue;
+          if (ageEl) ageEl.textContent = "no image";
+          const wrap = img.closest(".rc-img");
+          if (wrap && !wrap.querySelector(".rc-off") && !img.classList.contains("ready")) {
+            wrap.innerHTML = `<div class="rc-off">No image</div>`;
+          }
         }
       }
+    } finally {
+      if (run === this._run) this._refreshing = false;
     }
   },
 
   unmount() {
     clearInterval(this._timer);
+    this._run += 1;                  // invalidates fetch/decode work still in flight
+    this._refreshing = false;
     // Blob URLs are not garbage-collected while referenced - release them explicitly or
     // every refresh leaks a JPEG for as long as the page lives (512MB Pi).
-    document.querySelectorAll("img[data-objurl]").forEach((img) => {
+    (this._el || document).querySelectorAll("img[data-objurl]").forEach((img) => {
       URL.revokeObjectURL(img.dataset.objurl);
     });
+    this._el = null;
   },
 };

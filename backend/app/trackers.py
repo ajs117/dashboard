@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -119,11 +120,9 @@ def _load() -> None:
 def _save() -> None:
     p = _state_path()
     tmp = p.with_suffix(".json.tmp")
-    try:
-        tmp.write_text(json.dumps(_state), "utf-8")
-        os.replace(tmp, p)  # atomic
-    except Exception:  # noqa: BLE001 - best-effort persistence
-        pass
+    tmp.write_text(json.dumps(_state), "utf-8")
+    os.chmod(tmp, 0o600)  # parcel identifiers and licence status are private state
+    os.replace(tmp, p)  # atomic; failures propagate so callers cannot claim success
 
 
 def _entry(tid: str) -> dict[str, Any]:
@@ -145,6 +144,9 @@ def _apply(tid: str, value: float | None, source: str,
     now = time.time()
     alert = None
     if value is not None:
+        value = float(value)
+        if not math.isfinite(value):
+            raise ValueError("tracker value must be finite")
         prev = st.get("value")
         if st.get("baseline") is None:
             st["baseline"] = value

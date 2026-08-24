@@ -40,3 +40,13 @@ test("motion estimate rejects contradictory frame movement", () => {
   ]);
   assert.equal(result, null);
 });
+
+test("motion estimate rejects a perpendicular direction change", () => {
+  const result = estimateMotion([
+    field(60, 60),
+    field(64, 60),
+    field(64, 56),
+    field(68, 56),
+  ]);
+  assert.equal(result, null);
+});

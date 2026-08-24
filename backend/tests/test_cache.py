@@ -85,6 +85,18 @@ async def test_error_with_no_prior_value_raises():
         await c.get_or_fetch("k", ttl=0, coro=boom)
 
 
+async def test_failed_dynamic_keys_do_not_leak_locks():
+    c = TTLCache()
+
+    async def boom():
+        raise RuntimeError("nope")
+
+    for i in range(250):
+        with pytest.raises(RuntimeError):
+            await c.get_or_fetch(f"dynamic:{i}", ttl=0, coro=boom)
+    assert c._locks == {}
+
+
 async def test_clear_forces_a_refetch():
     c = TTLCache()
     calls = 0

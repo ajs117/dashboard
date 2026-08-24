@@ -54,3 +54,9 @@ def test_empty_series():
     assert out["raining_now"] is False
     assert out["status"] == "dry"
     assert out["timeline"] == []
+
+
+def test_nullable_probability_values_are_ignored_for_maximum():
+    out = rf.build_forecast([0.0, 0.0], [None, 20], wind_dir=0)
+    assert out["max_prob"] == 20
+    assert out["timeline"][0]["prob"] is None

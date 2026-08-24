@@ -61,6 +61,7 @@ def build_forecast(precip: list[float], prob: list[int] | None,
         {"mm": round(precip[i], 2), "prob": (prob[i] if i < len(prob) else None)}
         for i in range(n)
     ]
+    numeric_prob = [p for p in prob if isinstance(p, (int, float))]
     return {
         "raining_now": raining,
         "level": level,
@@ -70,7 +71,7 @@ def build_forecast(precip: list[float], prob: list[int] | None,
         "from_compass": compass16(wind_dir) if wind_dir is not None else None,
         "wind_dir": wind_dir,
         "peak_mm": round(max(precip), 2) if precip else 0.0,
-        "max_prob": max(prob) if prob else None,
+        "max_prob": max(numeric_prob) if numeric_prob else None,
         "timeline": timeline,
     }
 

@@ -1,6 +1,5 @@
 // Home: clock, weather, news+facts panel, world-clock carousel, stocks ticker, app carousel.
 import { esc } from "../util.js";
-import { radarNowcast } from "./rainNowcast.js";
 
 const WMO_EMOJI = {
   // NB: avoid Miscellaneous-Symbols emoji (☀️ ☁️ ❄️ ⛈️) — their Unicode default is
@@ -21,8 +20,18 @@ const APPS = [
   { route: "ring", ico: "📹", label: "Cameras" },
 ];
 
-const fmt = (date, opts, tz) =>
-  new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: tz }).format(date);
+const FORMATTERS = new Map();
+const fmt = (date, opts, tz) => {
+  const make = (zone) => {
+    const key = `${zone || "local"}:${JSON.stringify(opts)}`;
+    if (!FORMATTERS.has(key)) {
+      FORMATTERS.set(key, new Intl.DateTimeFormat("en-GB", zone ? { ...opts, timeZone: zone } : opts));
+    }
+    return FORMATTERS.get(key);
+  };
+  try { return make(tz).format(date); }
+  catch (e) { return make(null).format(date); }
+};
 const fmtClock = (iso) => (iso ? iso.slice(11, 16) : "—");
 const dayName = (iso) => {
   try { return new Date(iso).toLocaleDateString("en-GB", { weekday: "short" }); }
@@ -200,8 +209,10 @@ export const home = {
         this._rebuildFeed();
       } catch (e) { /* keep current facts */ }
     };
-    await Promise.all([loadNews(), loadFacts()]);
-    if (ctx.isCurrent && !ctx.isCurrent()) return;
+    Promise.all([loadNews(), loadFacts()]).then(() => {
+      if (ctx.isCurrent && !ctx.isCurrent()) return;
+      this._renderFeed(el);                      // do not leave "Loading news…" for 25s
+    });
     this._newsTimer = setInterval(loadNews, 900000);      // 15 min
     this._factsTimer = setInterval(loadFacts, 6 * 3600000); // 6 h (the set only changes daily)
 
@@ -222,18 +233,21 @@ export const home = {
       } catch (e) { /* ignore */ }
     };
     const loadAppInfo = async () => {
-      try { const d = await ctx.api("/api/trains"); setSub("trains", trainsSub(d.data)); } catch (e) { /* ignore */ }
-      try { const d = await ctx.api("/api/aircraft"); setSub("aircraft", aircraftSub(d.data)); } catch (e) { /* ignore */ }
-      try {
-        const env = await ctx.api("/api/radar");            // real radar sampled at our point
-        let fc = null;
-        try { fc = await radarNowcast(env.data, cfg.location?.lat, cfg.location?.lon); } catch (e) { /* fall back */ }
-        if (!fc) { try { fc = (await ctx.api("/api/radar/forecast")).data; } catch (e) { /* ignore */ } }
-        setSub("radar", radarSub(fc));
-      } catch (e) { /* ignore */ }
+      // Home needs only a short subtitle. Use the server point forecast here; decoding up
+      // to 32 radar tiles serially used to block every later home-card load. The full Radar
+      // page still computes the observed-tile nowcast when the user opens it.
+      const [trainEnv, aircraftEnv, radarEnv] = await Promise.all([
+        ctx.api("/api/trains").catch(() => null),
+        ctx.api("/api/aircraft").catch(() => null),
+        ctx.api("/api/radar/forecast").catch(() => null),
+      ]);
+      if (ctx.isCurrent && !ctx.isCurrent()) return;
+      if (trainEnv) setSub("trains", trainsSub(trainEnv.data));
+      if (aircraftEnv) setSub("aircraft", aircraftSub(aircraftEnv.data));
+      if (radarEnv) setSub("radar", radarSub(radarEnv.data));
     };
-    await Promise.all([loadTrackers(), loadAppInfo()]);
-    if (ctx.isCurrent && !ctx.isCurrent()) return;
+    loadTrackers();
+    loadAppInfo();
     this._trkTimer = setInterval(loadTrackers, 60000);
     this._appTimer = setInterval(loadAppInfo, 120000);
 
@@ -489,6 +503,7 @@ export const home = {
     cancelAnimationFrame(this._tkRAF);
     this._tkOff = 0;
     let last = performance.now();
+    let wrap = 0;
     const speed = 45;  // px/sec
     const step = (now) => {
       const tk = el.querySelector("#ticker");
@@ -496,9 +511,10 @@ export const home = {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
       // Wrap on exactly one sequence's width (not scrollWidth/2, which the optional
       // "delayed" badge would throw off and cause a visible jump).
-      const seqEl = tk.querySelector(".tk-seq");
-      const span = seqEl ? seqEl.offsetWidth : (tk.scrollWidth / 2);
-      const wrap = span || 1;
+      if (!wrap) {
+        const seqEl = tk.querySelector(".tk-seq");
+        wrap = (seqEl ? seqEl.offsetWidth : (tk.scrollWidth / 2)) || 1;
+      }
       this._tkOff -= speed * dt;
       if (this._tkOff <= -wrap) this._tkOff += wrap;
       tk.style.transform = `translateX(${this._tkOff}px)`;

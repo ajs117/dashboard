@@ -148,7 +148,7 @@ async def list_cameras(cfg: dict[str, Any]) -> dict[str, Any]:
             cams = [describe(c) for c in _cameras(ring)]
             return {"enabled": True, "cameras": cams}
         except Exception as exc:  # noqa: BLE001 - surface as a message, don't 500 the UI
-            _reset()
+            await _reset()
             return {"enabled": True, "cameras": [], "error": str(exc)[:160]}
 
 
@@ -219,12 +219,23 @@ async def snapshot(cfg: dict[str, Any], cam_id: str) -> tuple[bytes, float] | No
                 return await _fetch_snapshot(ring, cam, max_age)
             return None
         except Exception:  # noqa: BLE001 - a bad snapshot must not break the page
-            _reset()
+            await _reset()
             return None
 
 
-def _reset() -> None:
-    """Drop the cached session so the next call re-authenticates."""
+async def _reset() -> None:
+    """Close and drop the cached session so the next call re-authenticates."""
     global _ring, _auth
+    auth = _auth
     _ring = None
     _auth = None
+    if auth is not None:
+        try:
+            await auth.async_close()
+        except Exception:  # noqa: BLE001 - cleanup must not hide the original failure
+            pass
+
+
+async def aclose() -> None:
+    async with _lock:
+        await _reset()

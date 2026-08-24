@@ -40,8 +40,11 @@ class DarwinSoapProvider(RailProvider):
         if self._client is not None and self._token == token:
             return
         from zeep import Client, xsd  # imported lazily so the app starts without it
+        from zeep.transports import Transport
 
-        client = Client(wsdl=_WSDL)
+        # Bound both WSDL loading and SOAP operations. The call runs in a worker thread,
+        # but an unbounded socket would still occupy that worker forever after an outage.
+        client = Client(wsdl=_WSDL, transport=Transport(timeout=10, operation_timeout=15))
         header = xsd.Element(
             f"{{{_TOKEN_NS}}}AccessToken",
             xsd.ComplexType([

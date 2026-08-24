@@ -13,8 +13,30 @@ from typing import Any
 from . import RateLimiter, client
 from .geo import KM_PER_NM, MI_PER_KM, bearing, compass16, elevation_deg, haversine_km
 
-_BASE = "https://api.airplanes.live/v2/point"
+_SOURCES = (
+    # airplanes.live was the original source, but began returning HTTP 403 to the Pi in
+    # August 2026. adsb.lol exposes the same readsb response shape and is currently the
+    # primary; keep both so a single community service cannot blank the whole module.
+    ("adsb.lol", "https://api.adsb.lol/v2/point"),
+    ("airplanes.live", "https://api.airplanes.live/v2/point"),
+)
 _limiter = RateLimiter(min_interval=1.05)  # respect the 1 req/sec limit
+
+
+async def _fetch_raw(lat: float, lon: float, radius: int) -> tuple[dict[str, Any], str]:
+    last_error: Exception | None = None
+    for name, base in _SOURCES:
+        try:
+            await _limiter.wait()
+            resp = await client().get(f"{base}/{lat}/{lon}/{radius}")
+            resp.raise_for_status()
+            body = resp.json()
+            if isinstance(body, dict):
+                return body, name
+            last_error = ValueError(f"{name} returned a non-object response")
+        except Exception as exc:  # noqa: BLE001 - fail over to the compatible source
+            last_error = exc
+    raise RuntimeError(f"all aircraft sources failed: {last_error}") from last_error
 
 
 async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -25,11 +47,7 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
     radius = int(ac_cfg.get("radius_nm", 50))
     limit = int(ac_cfg.get("max_results", 12))
 
-    await _limiter.wait()
-    url = f"{_BASE}/{lat}/{lon}/{radius}"
-    resp = await client().get(url)
-    resp.raise_for_status()
-    raw = resp.json()
+    raw, source = await _fetch_raw(lat, lon, radius)
 
     out = []
     for ac in raw.get("ac", []) or []:
@@ -71,4 +89,5 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
         "radius_nm": radius,
         "count": len(out),
         "aircraft": out,
+        "source": source,
     }

@@ -72,6 +72,22 @@ async def test_aircraft_respects_max_results(make_mock_http, sample_cfg):
     assert len(out["aircraft"]) == 1
 
 
+async def test_aircraft_falls_back_between_compatible_sources(
+    make_mock_http, sample_cfg, monkeypatch,
+):
+    monkeypatch.setattr(aircraft._limiter, "_min", 0)
+
+    def handler(request):
+        if request.url.host == "api.adsb.lol":
+            return httpx.Response(403, text="blocked")
+        return httpx.Response(200, json=load_fixture("airplanes.json"))
+
+    make_mock_http(handler)
+    out = await aircraft.fetch(sample_cfg)
+    assert out["source"] == "airplanes.live"
+    assert out["count"] == 3
+
+
 async def test_photo_found(make_mock_http):
     make_mock_http(lambda r: httpx.Response(200, json=load_fixture("planespotters.json")))
     out = await photos.fetch("400F1A")

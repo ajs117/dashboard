@@ -1,6 +1,9 @@
 """Tests for the flight-watch maths: progress along a route and ETA."""
 from __future__ import annotations
 
+import httpx
+import pytest
+
 from app.providers import flightwatch
 
 # Real coordinates for the CX255 route that prompted this feature.
@@ -130,3 +133,15 @@ def test_shape_computes_bearing_and_distance_from_home():
 def test_shape_treats_ground_altitude_as_zero():
     ac = {"hex": "abc", "lat": 52.4, "lon": -2.2, "alt_baro": "ground"}
     assert flightwatch._shape(ac, 52.4, -2.2)["altitude"] == 0   # noqa: SLF001
+
+
+async def test_lookup_distinguishes_total_outage_from_empty_result(
+    make_mock_http, monkeypatch,
+):
+    monkeypatch.setattr(flightwatch._limiter, "_min", 0)
+    make_mock_http(lambda request: httpx.Response(503, text="down"))
+    with pytest.raises(RuntimeError, match="all ADS-B sources failed"):
+        await flightwatch._lookup("BA123")
+
+    make_mock_http(lambda request: httpx.Response(200, json={"ac": []}))
+    assert await flightwatch._lookup("BA123") is None

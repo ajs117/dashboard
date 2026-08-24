@@ -4,7 +4,7 @@ import { esc } from "../util.js";
 import { radarNowcast } from "./rainNowcast.js";
 
 export const radar = {
-  _map: null, _layer: null, _refresh: null, _fade: null, _inbound: null,
+  _map: null, _layer: null, _refresh: null, _fade: null, _inbound: null, _framePath: null,
 
   async mount(el, ctx) {
     el.innerHTML = `
@@ -93,21 +93,28 @@ export const radar = {
       ? Math.min(frames.length - 1, Math.max(0, data.past_count - 1))
       : frames.length - 1;
     const f = frames[idx];
+    if (f.path === this._framePath) return;       // do not rebuild an unchanged tile layer
     const url = `${data.host}${f.path}/256/{z}/{x}/{y}/4/1_1.png`;
     // crossOrigin so the browser caches a CORS-clean response — rainNowcast samples these
     // same tiles in a canvas, which taints (and throws on read) if they were cached non-CORS.
     const layer = L.tileLayer(url, {
       opacity: 0.8, maxNativeZoom: 7, maxZoom: 18, zIndex: 5, crossOrigin: "anonymous",
     });
-    layer.addTo(this._map);
-    if (this._layer) {
-      const old = this._layer;
-      // crossfade: drop the old layer shortly after; cancel on unmount so it can't
-      // fire against a torn-down map.
+    const old = this._layer;
+    if (old) {
+      // Keep the last working frame until the replacement's visible tiles have loaded.
+      // A bounded fallback avoids retaining it forever if Leaflet never emits `load`.
       clearTimeout(this._fade);
-      this._fade = setTimeout(() => { if (this._map) this._map.removeLayer(old); }, 300);
+      const removeOld = () => {
+        clearTimeout(this._fade);
+        if (this._map && this._map.hasLayer(old)) this._map.removeLayer(old);
+      };
+      layer.once("load", removeOld);
+      this._fade = setTimeout(removeOld, 5000);
     }
+    layer.addTo(this._map);
     this._layer = layer;
+    this._framePath = f.path;
   },
 
   _fromDir(fc) {
@@ -122,7 +129,9 @@ export const radar = {
         cls = "r-now"; head = `🌧️ Raining now <span class="lvl">${esc(fc.level)}</span>`;
         line = fc.minutes_until_stop != null
           ? `<span class="soon">Stops in ~${fc.minutes_until_stop} min</span>`
-          : `<span class="muted">Set in for the next couple of hours</span>`;
+          : `<span class="muted">${fc.horizon_minutes > 0
+            ? `Continues through the next ${fc.horizon_minutes} min of radar coverage`
+            : "Duration uncertain"}</span>`;
         break;
       case "starting":
         cls = "r-soon"; head = `🌧️ Rain soon`;
@@ -130,7 +139,9 @@ export const radar = {
         break;
       default:
         cls = "r-dry"; head = `🌞 Dry`;
-        line = `<span class="muted">No rain in the next 2 hours${fc.from_compass ? " · wind from the " + esc(fc.from_compass) : ""}</span>`;
+        line = `<span class="muted">No rain expected in the next ${
+          fc.horizon_minutes == null ? "2 hours" : `${fc.horizon_minutes} min`}${
+          fc.from_compass ? " · from the " + esc(fc.from_compass) : ""}</span>`;
     }
     el.className = `rain-panel ${cls}`;
     el.innerHTML = `
@@ -160,6 +171,7 @@ export const radar = {
     clearTimeout(this._fade);
     if (this._map) { this._map.remove(); this._map = null; }
     this._layer = null;
+    this._framePath = null;
     this._inbound = null;      // layers died with the map; drop the refs
   },
 };

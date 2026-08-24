@@ -135,17 +135,30 @@ async def _lookup(callsign: str) -> tuple[dict[str, Any], str] | None:
     down or answering with junk (adsb.lol has been seen returning a non-JSON body) must not
     cost us a hit from the others.
     """
+    got_valid_response = False
+    last_error: Exception | None = None
     for name, base in _SOURCES:
         try:
             await _limiter.wait()
             resp = await client().get(f"{base}/{callsign}")
             if resp.status_code != 200:
+                last_error = RuntimeError(f"{name} returned HTTP {resp.status_code}")
                 continue
-            for ac in (resp.json() or {}).get("ac") or []:
+            body = resp.json()
+            if not isinstance(body, dict):
+                raise TypeError(f"{name} returned a non-object response")
+            got_valid_response = True
+            for ac in body.get("ac") or []:
                 if ac.get("lat") is not None and ac.get("lon") is not None:
                     return ac, name
-        except Exception:  # noqa: BLE001 - try the next network
+        except Exception as exc:  # noqa: BLE001 - try the next network
+            last_error = exc
             continue
+    # A valid empty response means the flight genuinely is not being heard. If every
+    # provider failed, propagate that distinction so callers cannot infer "landed" from
+    # a network outage and permanently latch the wrong state.
+    if not got_valid_response:
+        raise RuntimeError(f"all ADS-B sources failed: {last_error}") from last_error
     return None
 
 

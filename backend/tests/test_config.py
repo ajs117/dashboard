@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import stat
 
 import pytest
 
@@ -52,3 +54,24 @@ def test_save_roundtrip(fresh_config):
     assert cfg.get()["location"]["lat"] == 9.9
     # Token preserved through save.
     assert cfg.get()["trains"]["token"] == "SECRET"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_save_keeps_secret_config_owner_only(fresh_config):
+    cfg, path = fresh_config
+    path.chmod(0o644)
+    cfg.save()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("bad", [
+    {"location": None},
+    {"location": {"lat": None, "lon": 0}},
+    {"location": {"lat": 0, "lon": 181}},
+    {"location": {"lat": 0, "lon": 0, "timezone": "../not-a-timezone"}},
+    {"aircraft": None},
+    {"watch_flights": "BA123"},
+])
+def test_validate_rejects_endpoint_breaking_shapes(bad):
+    with pytest.raises(ValueError):
+        config_mod.validate(bad)

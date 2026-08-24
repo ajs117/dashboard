@@ -11,7 +11,9 @@ and write back to whichever file we loaded from (never the example fallback).
 """
 from __future__ import annotations
 
+import math
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,38 @@ _lock = threading.RLock()
 _data: dict[str, Any] = {}
 _path: Path | None = None
 _is_fallback = False
+
+_DICT_SECTIONS = {
+    "location", "units", "stocks", "trains", "aircraft", "radar", "govee",
+    "trackers", "holiday_tracker", "dvla_licence", "ecoflow", "govee_indoor",
+    "claude_usage", "parcel_api", "ring", "cache", "refresh", "server",
+}
+_LIST_SECTIONS = {"world_clocks", "countdowns", "watch_flights"}
+
+
+def validate(data: Any) -> dict[str, Any]:
+    """Reject shapes that would persistently break normal provider `.get()` calls."""
+    if not isinstance(data, dict):
+        raise ValueError("configuration root must be an object")
+    for key in _DICT_SECTIONS:
+        if key in data and not isinstance(data[key], dict):
+            raise ValueError(f"configuration section {key!r} must be an object")
+    for key in _LIST_SECTIONS:
+        if key in data and not isinstance(data[key], list):
+            raise ValueError(f"configuration section {key!r} must be a list")
+    loc = data.get("location") or {}
+    for key, low, high in (("lat", -90, 90), ("lon", -180, 180)):
+        if key not in loc:
+            continue
+        value = loc[key]
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or not low <= value <= high):
+            raise ValueError(f"location.{key} must be a finite number from {low} to {high}")
+    timezone = loc.get("timezone")
+    if timezone and not (timezone == "UTC" or re.fullmatch(
+            r"[A-Za-z_]+(?:/[A-Za-z0-9_+.-]+)+", str(timezone))):
+        raise ValueError("location.timezone must be UTC or an IANA Area/City name")
+    return data
 
 
 def _candidate_paths() -> list[Path]:
@@ -45,7 +79,7 @@ def load() -> dict[str, Any]:
         for p in _candidate_paths():
             if p.is_file():
                 with p.open("r", encoding="utf-8") as fh:
-                    _data = yaml.safe_load(fh) or {}
+                    _data = validate(yaml.safe_load(fh) or {})
                 _path = p
                 _is_fallback = p == _EXAMPLE
                 return _data
@@ -84,6 +118,10 @@ def save() -> None:
             target = _REPO_ROOT / "config.yaml"
         tmp = target.with_suffix(target.suffix + ".tmp")
         with tmp.open("w", encoding="utf-8") as fh:
+            # The config contains API credentials and the admin token. os.replace keeps
+            # the temp file's mode, not the target's, so set it before writing any secret
+            # content; otherwise the first settings save can silently turn 0600 into 0644.
+            os.chmod(tmp, 0o600)
             yaml.safe_dump(_data, fh, sort_keys=False, allow_unicode=True)
         os.replace(tmp, target)  # atomic
         _path = target

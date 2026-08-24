@@ -8,4 +8,7 @@ Type=oneshot
 User=pi
 Environment=DASHBOARD_REPO=/data/dashboard
 Environment=DASHBOARD_BRANCH=main
-ExecStart=/data/dashboard/deploy/scripts/update.sh
+# Repository scripts are intentionally usable even when a checkout does not preserve the
+# executable bit (for example after development on Windows).
+ExecStart=/usr/bin/bash /data/dashboard/deploy/scripts/update.sh
+TimeoutStartSec=15min

@@ -11,6 +11,7 @@ Currently:
 """
 from __future__ import annotations
 
+import asyncio
 import html as _html
 import re
 import time
@@ -47,6 +48,7 @@ def parse_holiday_price(js: dict, accommodation_id: int | None = None,
     otherwise take the first result (cheapest, as the call sorts price.asc). Returns the
     per-person price by default (matches TUI's displayed figure), else the party total.
     """
+    accommodation_id = accommodation_id or None  # config uses 0 to mean "first result"
     results = js.get("holidayResults") or []
     chosen = None
     for r in results:
@@ -80,7 +82,7 @@ async def holiday_price() -> float | None:
     }
     resp = await client().post(_HH_URL, headers=_HH_HEADERS, json=body)
     resp.raise_for_status()
-    return parse_holiday_price(resp.json(), h.get("accommodation_id"),
+    return parse_holiday_price(resp.json(), h.get("accommodation_id") or None,
                                h.get("price_field", "pricePp"))
 
 
@@ -181,6 +183,7 @@ def parse_delivery(d: dict[str, Any]) -> dict[str, Any]:
 
 _deliveries_cache: dict[str, Any] = {"at": 0.0, "key": None, "data": None}
 _DELIVERIES_TTL = 900     # 15 min — API is cached upstream and capped at 20 requests/hour
+_deliveries_lock = asyncio.Lock()
 
 
 async def fetch_deliveries(api_key: str) -> list[dict[str, Any]] | None:
@@ -195,19 +198,23 @@ async def fetch_deliveries(api_key: str) -> list[dict[str, Any]] | None:
     now = time.time()
     if c["data"] is not None and c["key"] == api_key and (now - c["at"]) < _DELIVERIES_TTL:
         return c["data"]
-    try:
-        # "active" = only parcels still on their way (drops the pile of old delivered ones
-        # that "recent" returns) — a glanceable "what am I waiting for" view.
-        resp = await client().get(f"{_PARCEL_URL}?filter_mode=active",
-                                  headers={"api-key": api_key})
-        resp.raise_for_status()
-        js = resp.json()
-    except Exception:  # noqa: BLE001 - transient -> keep last-good
+    async with _deliveries_lock:
+        now = time.time()
+        if c["data"] is not None and c["key"] == api_key and (now - c["at"]) < _DELIVERIES_TTL:
+            return c["data"]
+        try:
+            # "active" = only parcels still on their way (drops the pile of old delivered
+            # ones that "recent" returns).
+            resp = await client().get(f"{_PARCEL_URL}?filter_mode=active",
+                                      headers={"api-key": api_key})
+            resp.raise_for_status()
+            js = resp.json()
+        except Exception:  # noqa: BLE001 - transient -> matching-account last-good only
+            return c["data"] if c["key"] == api_key else None
+        if not js.get("success"):
+            return c["data"] if c["key"] == api_key else None
+        c.update(at=now, key=api_key, data=(js.get("deliveries") or []))
         return c["data"]
-    if not js.get("success"):
-        return c["data"]
-    c.update(at=now, key=api_key, data=(js.get("deliveries") or []))
-    return c["data"]
 
 
 async def dvla_licence() -> dict[str, Any] | None:

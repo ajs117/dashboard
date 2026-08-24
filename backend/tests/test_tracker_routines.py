@@ -21,6 +21,7 @@ def test_parse_first_when_no_id():
     js = _resp({"accommodationId": 5, "pricePp": 800, "price": 1600.0},
                {"accommodationId": 6, "pricePp": 900, "price": 1800.0})
     assert tr.parse_holiday_price(js) == 800.0
+    assert tr.parse_holiday_price(js, accommodation_id=0) == 800.0
 
 
 def test_parse_party_total_field():

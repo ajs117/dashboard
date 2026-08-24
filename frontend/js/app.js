@@ -48,21 +48,36 @@ export function tap(el, fn) {
 // move (so a drag still scrolls). No preventDefault, so panning keeps working.
 export function tapRow(el, fn) {
   if (!el) return;
-  let sx = 0, sy = 0, moved = false;
-  el.addEventListener("pointerdown", (e) => { sx = e.clientX; sy = e.clientY; moved = false; });
+  let sx = 0, sy = 0, moved = false, pointerId = null;
+  el.addEventListener("pointerdown", (e) => {
+    if (!isRealPress(e)) { pointerId = null; return; }
+    pointerId = e.pointerId; sx = e.clientX; sy = e.clientY; moved = false;
+  });
   el.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== pointerId) return;
     if (Math.hypot(e.clientX - sx, e.clientY - sy) > 12) moved = true;
   });
-  el.addEventListener("pointerup", (e) => { if (!moved) fn(e); });
+  el.addEventListener("pointerup", (e) => {
+    if (e.pointerId !== pointerId) return;
+    pointerId = null;
+    if (!moved) fn(e);
+  });
+  el.addEventListener("pointercancel", (e) => {
+    if (e.pointerId === pointerId) pointerId = null;
+  });
 }
 
 // "stale data" badge (top-right).
 export function setStale(stale, msg) {
   const el = document.getElementById("status");
   if (!el) return;
-  el.innerHTML = stale
-    ? `<span class="stale-badge">stale${msg ? " · " + msg : ""}</span>`
-    : "";
+  el.replaceChildren();
+  if (stale) {
+    const badge = document.createElement("span");
+    badge.className = "stale-badge";
+    badge.textContent = `stale${msg ? " · " + msg : ""}`;
+    el.appendChild(badge);
+  }
 }
 
 let current = null;
@@ -115,7 +130,11 @@ async function navigate(route) {
     await current.mount(view(), ctx);
   } catch (e) {
     if (myToken === navToken) {
-      view().innerHTML = `<div class="err">Failed to load ${route}: ${e.message}</div>`;
+      current = null;                 // allow this route to be retried after a failed mount
+      const error = document.createElement("div");
+      error.className = "err";
+      error.textContent = `Failed to load ${route}: ${e.message}`;
+      view().replaceChildren(error);
     }
   }
 }
@@ -143,8 +162,11 @@ function startRemotePoll() {
       }
     } catch (e) { /* ignore; try again next tick */ }
   };
-  setInterval(poll, 2000);
-  poll();
+  const loop = async () => {
+    await poll();                     // serialize responses so an older command cannot win
+    setTimeout(loop, 2000);
+  };
+  loop();
 }
 
 async function boot() {

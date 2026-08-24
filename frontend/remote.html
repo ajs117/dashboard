@@ -43,10 +43,18 @@
   .trk { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 0;
         border-bottom:1px solid var(--line); }
   .trk:last-child { border-bottom:0; }
+  .auth { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .auth input { flex:1; }
+  .auth button { flex:0 0 auto; }
 </style>
 </head>
 <body>
   <h1>📡 Dashboard Remote</h1>
+  <div class="auth">
+    <input id="admin-token" type="password" autocomplete="current-password"
+      placeholder="Admin token (required for changes)">
+    <button class="sm" id="forget-token" type="button">Forget</button>
+  </div>
   <div class="tabs">
     <div class="tab on" data-tab="screen">Screen</div>
     <div class="tab" data-tab="settings">Settings</div>
@@ -81,17 +89,37 @@
 <script type="module">
 const $ = (s, r=document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const tokenInput = $("#admin-token");
+tokenInput.value = sessionStorage.getItem("dashboard-admin-token") || "";
+tokenInput.onchange = () => sessionStorage.setItem("dashboard-admin-token", tokenInput.value.trim());
+$("#forget-token").onclick = () => {
+  tokenInput.value = "";
+  sessionStorage.removeItem("dashboard-admin-token");
+};
+function adminHeaders() {
+  const token = tokenInput.value.trim();
+  if (!token) throw new Error("Enter the admin token above");
+  sessionStorage.setItem("dashboard-admin-token", token);
+  return {"X-Admin-Token": token};
+}
 function toast(msg, err=false) {
   const t = $("#toast"); t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
   setTimeout(() => t.className = "toast", 1600);
 }
-async function post(path, body) {
-  const r = await fetch(path, { method:"POST", headers:{"Content-Type":"application/json"},
+async function post(path, body, admin=false) {
+  const r = await fetch(path, { method:"POST", headers:{"Content-Type":"application/json",
+    ...(admin ? adminHeaders() : {})},
     body: body ? JSON.stringify(body) : undefined });
+  if (admin && r.status === 403) sessionStorage.removeItem("dashboard-admin-token");
   if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.status);
   return r.json();
 }
-async function get(path) { const r = await fetch(path, {cache:"no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); }
+async function get(path, admin=false) {
+  const r = await fetch(path, {cache:"no-store", headers:admin ? adminHeaders() : {}});
+  if (admin && r.status === 403) sessionStorage.removeItem("dashboard-admin-token");
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.status);
+  return r.json();
+}
 
 // --- tabs ---
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
@@ -103,19 +131,19 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
 
 // --- screen control ---
 document.querySelectorAll("[data-go]").forEach(b => b.onclick = async () => {
-  try { await post("/api/remote/cmd", {action:"go", value:b.dataset.go}); toast("Sent → " + b.dataset.go); }
+  try { await post("/api/remote/cmd", {action:"go", value:b.dataset.go}, true); toast("Sent → " + b.dataset.go); }
   catch(e){ toast("Failed: "+e.message, true); }
 });
-$("#reload").onclick = async () => { try { await post("/api/remote/cmd",{action:"reload"}); toast("Reloading screen"); } catch(e){ toast("Failed",true);} };
+$("#reload").onclick = async () => { try { await post("/api/remote/cmd",{action:"reload"},true); toast("Reloading screen"); } catch(e){ toast("Failed: "+e.message,true);} };
 $("#reboot").onclick = async () => {
   if (!confirm("Reboot the Pi now?")) return;
-  try { await post("/api/remote/reboot"); toast("Rebooting…"); } catch(e){ toast("Reboot failed: "+e.message, true); }
+  try { await post("/api/remote/reboot",null,true); toast("Rebooting…"); } catch(e){ toast("Reboot failed: "+e.message, true); }
 };
 
 // --- settings ---
 let cfg = {};
 async function loadSettings() {
-  try { cfg = await get("/api/admin/config"); } catch(e){ $("#settings-body").innerHTML = `<p class="muted">Failed to load.</p>`; return; }
+  try { cfg = await get("/api/admin/config",true); } catch(e){ $("#settings-body").innerHTML = `<p class="muted">Failed to load: ${esc(e.message)}</p>`; return; }
   const loc = cfg.location||{}, u = cfg.units||{};
   const clocks = cfg.world_clocks||[], cds = cfg.countdowns||[];
   const g = cfg.govee||{}, gi = cfg.govee_indoor||{}, ef = cfg.ecoflow||{}, tr = cfg.trains||{};
@@ -182,6 +210,7 @@ async function loadSettings() {
 }
 
 $("#save").onclick = async () => {
+  if (!$("#s-label")) { toast("Open Settings and wait for it to load", true); return; }
   const val = id => $("#"+id).value.trim();
   const clocks = [...document.querySelectorAll("#clock-list .row")].map(r => ({
     label:r.querySelector(".c-label").value.trim(), tz:r.querySelector(".c-tz").value.trim()
@@ -195,8 +224,17 @@ $("#save").onclick = async () => {
   const wf = [...new Set([...document.querySelectorAll("#wf-list .w-cs")]
     .map(i => i.value.trim().toUpperCase().replace(/\s+/g, ""))
     .filter(c => /^[A-Z0-9]{2,10}$/.test(c)))].slice(0, 6);
+  const lat = parseFloat(val("s-lat")), lon = parseFloat(val("s-lon"));
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90
+      || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    toast("Enter a valid latitude and longitude", true);
+    return;
+  }
+  const timezone = val("s-tz");
+  try { new Intl.DateTimeFormat("en-GB", {timeZone: timezone}).format(); }
+  catch (e) { toast("Enter a valid IANA timezone, such as Europe/London", true); return; }
   const patch = {
-    location:{ label:val("s-label"), lat:parseFloat(val("s-lat")), lon:parseFloat(val("s-lon")), timezone:val("s-tz") },
+    location:{ label:val("s-label"), lat, lon, timezone },
     units:{ temperature:val("s-temp"), wind:val("s-wind") },
     world_clocks: clocks, countdowns: cds, watch_flights: wf,
     govee:{ api_key:val("s-gkey"), sku:val("s-gsku"), device:val("s-gdev") },
@@ -207,8 +245,8 @@ $("#save").onclick = async () => {
     holiday_tracker:{ search_id: parseInt(val("s-hsid"))||0, account_id: val("s-hacc") },
   };
   try {
-    await post("/api/admin/config", patch);
-    await post("/api/remote/cmd", {action:"reload"});   // apply changes on the screen now
+    await post("/api/admin/config", patch, true);
+    await post("/api/remote/cmd", {action:"reload"}, true);   // apply changes on the screen now
     toast("Saved & screen reloading");
   } catch(e){ toast("Save failed: "+e.message, true); }
 };
@@ -223,8 +261,8 @@ async function loadTrackers() {
         <button class="sm" data-ref="${esc(t.id)}">Check</button>
         ${t.alert&&t.alert.active?`<button class="sm" data-ack="${esc(t.id)}">Dismiss</button>`:""}
       </div></div>`).join("") : `<p class="muted">No trackers.</p>`) + `</div>`;
-  document.querySelectorAll("[data-ref]").forEach(b=>b.onclick=async()=>{ b.textContent="…"; try{await post(`/api/trackers/${b.dataset.ref}/refresh`); toast("Checked"); loadTrackers();}catch(e){toast("Failed",true);} });
-  document.querySelectorAll("[data-ack]").forEach(b=>b.onclick=async()=>{ try{await post(`/api/trackers/${b.dataset.ack}/ack`); loadTrackers();}catch(e){toast("Failed",true);} });
+  document.querySelectorAll("[data-ref]").forEach(b=>b.onclick=async()=>{ b.textContent="…"; try{await post(`/api/trackers/${b.dataset.ref}/refresh`,null,true); toast("Checked"); loadTrackers();}catch(e){toast("Failed: "+e.message,true);} });
+  document.querySelectorAll("[data-ack]").forEach(b=>b.onclick=async()=>{ try{await post(`/api/trackers/${b.dataset.ack}/ack`,null,true); loadTrackers();}catch(e){toast("Failed: "+e.message,true);} });
 }
 </script>
 </body>

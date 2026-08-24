@@ -175,9 +175,9 @@ function estimateMotion(fields) {
   if (magnitude < 0.1) return null;
   const agreeing = samples.filter((s) => {
     const sm = Math.hypot(s.vx, s.vy);
-    return sm > 0.05 && (s.vx * vx + s.vy * vy) / (sm * magnitude) >= 0;
+    return sm > 0.05 && (s.vx * vx + s.vy * vy) / (sm * magnitude) >= 0.7;
   }).length;
-  if (agreeing < Math.ceil(samples.length * 0.6)) return null;
+  if (agreeing < Math.ceil(samples.length * 0.75)) return null;
   return { vx, vy, samples: samples.length };
 }
 

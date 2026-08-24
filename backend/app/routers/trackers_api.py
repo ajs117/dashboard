@@ -11,16 +11,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from .. import trackers
+from .config_api import require_admin_or_local
 
 router = APIRouter(prefix="/api/trackers", tags=["trackers"])
 
 
 class ValueIn(BaseModel):
-    value: float
+    value: float = Field(allow_inf_nan=False)
 
 
 @router.get("")
@@ -29,7 +30,13 @@ async def list_trackers() -> dict[str, Any]:
 
 
 @router.post("/{tid}/value")
-async def set_value(tid: str, body: ValueIn) -> dict[str, Any]:
+async def set_value(
+    tid: str,
+    body: ValueIn,
+    request: Request,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin_or_local(request, x_admin_token)
     try:
         return await trackers.set_value(tid, body.value)
     except KeyError:
@@ -37,7 +44,12 @@ async def set_value(tid: str, body: ValueIn) -> dict[str, Any]:
 
 
 @router.post("/{tid}/ack")
-async def ack(tid: str) -> dict[str, Any]:
+async def ack(
+    tid: str,
+    request: Request,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin_or_local(request, x_admin_token)
     try:
         return await trackers.ack(tid)
     except KeyError:
@@ -45,7 +57,12 @@ async def ack(tid: str) -> dict[str, Any]:
 
 
 @router.post("/{tid}/refresh")
-async def refresh(tid: str) -> dict[str, Any]:
+async def refresh(
+    tid: str,
+    request: Request,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin_or_local(request, x_admin_token)
     try:
         return await trackers.refresh(tid)
     except KeyError:

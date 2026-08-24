@@ -46,7 +46,7 @@ fi
 echo "[update] restarting services"
 sudo systemctl restart dashboard-backend.service
 # Reload the kiosk so the new frontend is shown (chromium restart is cheap enough here).
-sudo systemctl restart dashboard-kiosk.service || true
+sudo systemctl restart dashboard-kiosk.service
 printf '%s\n' "$REMOTE" > "${DEPLOYED_FILE}.tmp"
 mv "${DEPLOYED_FILE}.tmp" "$DEPLOYED_FILE"
 echo "[update] done"

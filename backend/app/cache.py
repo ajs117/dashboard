@@ -24,6 +24,12 @@ class _Entry:
     error: str | None = None
 
 
+@dataclass
+class _KeyLock:
+    lock: asyncio.Lock
+    users: int = 0
+
+
 # Bound the store so per-callsign route / per-hex photo keys can't grow without limit
 # over weeks of uptime on a 512MB Pi. The handful of fixed keys (weather/radar/...) plus
 # recently-seen flights fit comfortably; the oldest entries are evicted past this.
@@ -33,7 +39,7 @@ _MAX_ENTRIES = 200
 class TTLCache:
     def __init__(self) -> None:
         self._store: dict[str, _Entry] = {}
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._locks: dict[str, _KeyLock] = {}
         self._generation = 0
 
     def clear(self) -> None:
@@ -46,7 +52,7 @@ class TTLCache:
         """
         self._generation += 1
         self._store.clear()
-        self._locks = {key: lock for key, lock in self._locks.items() if lock.locked()}
+        self._locks = {key: state for key, state in self._locks.items() if state.users}
 
     def _evict_if_needed(self) -> None:
         if len(self._store) <= _MAX_ENTRIES:
@@ -55,14 +61,17 @@ class TTLCache:
         overflow = len(self._store) - _MAX_ENTRIES
         for k in sorted(self._store, key=lambda k: self._store[k].fetched_at)[:overflow]:
             self._store.pop(k, None)
-            self._locks.pop(k, None)
+            state = self._locks.get(k)
+            if state is not None and state.users == 0:
+                self._locks.pop(k, None)
 
-    def _lock_for(self, key: str) -> asyncio.Lock:
-        lock = self._locks.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[key] = lock
-        return lock
+    def _lock_for(self, key: str) -> _KeyLock:
+        state = self._locks.get(key)
+        if state is None:
+            state = _KeyLock(asyncio.Lock())
+            self._locks[key] = state
+        state.users += 1
+        return state
 
     async def get_or_fetch(
         self,
@@ -75,25 +84,31 @@ class TTLCache:
         if entry is not None and (now - entry.fetched_at) < ttl:
             return self._wrap(entry, fresh=True)
 
-        async with self._lock_for(key):
-            # Re-check: another waiter may have refreshed while we waited.
-            entry = self._store.get(key)
-            now = time.time()
-            if entry is not None and (now - entry.fetched_at) < ttl:
-                return self._wrap(entry, fresh=True)
-            generation = self._generation
-            try:
-                value = await coro()
-                entry = _Entry(value=value, fetched_at=time.time())
-                if generation == self._generation:
-                    self._store[key] = entry
-                    self._evict_if_needed()
-                return self._wrap(entry, fresh=True)
-            except Exception as exc:
-                if entry is not None:
-                    entry.error = str(exc)
-                    return self._wrap(entry, fresh=False)
-                raise
+        state = self._lock_for(key)
+        try:
+            async with state.lock:
+                # Re-check: another waiter may have refreshed while we waited.
+                entry = self._store.get(key)
+                now = time.time()
+                if entry is not None and (now - entry.fetched_at) < ttl:
+                    return self._wrap(entry, fresh=True)
+                generation = self._generation
+                try:
+                    value = await coro()
+                    entry = _Entry(value=value, fetched_at=time.time())
+                    if generation == self._generation:
+                        self._store[key] = entry
+                        self._evict_if_needed()
+                    return self._wrap(entry, fresh=True)
+                except Exception as exc:
+                    if entry is not None:
+                        entry.error = str(exc)
+                        return self._wrap(entry, fresh=False)
+                    raise
+        finally:
+            state.users -= 1
+            if state.users == 0 and self._locks.get(key) is state:
+                self._locks.pop(key, None)
 
     @staticmethod
     def _wrap(entry: _Entry, fresh: bool) -> dict[str, Any]:
