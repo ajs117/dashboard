@@ -74,6 +74,10 @@ sudo cp "$REPO_DIR"/deploy/systemd/dashboard-update.timer /etc/systemd/system/
 sudo visudo -cf "$REPO_DIR/deploy/sudoers/dashboard"
 sudo install -m 0440 -o root -g root "$REPO_DIR/deploy/sudoers/dashboard" /etc/sudoers.d/dashboard
 sudo systemctl daemon-reload
+# The kiosk opens a PAM login session on tty1; agetty owning that tty makes ExecStartPre
+# block forever in pre-exec setup, so the health poll never even runs.
+sudo systemctl disable --now getty@tty1.service 2>/dev/null || true
+sudo systemctl mask getty@tty1.service
 sudo systemctl enable --now dashboard-backend.service
 sudo systemctl enable --now dashboard-kiosk.service
 sudo systemctl enable --now dashboard-update.timer

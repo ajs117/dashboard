@@ -12,6 +12,10 @@ StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 Environment=XDG_RUNTIME_DIR=/run/user/1000
+# WebKit's bwrap sandbox aborts ("Unexpected capabilities but not setuid") if it inherits
+# any ambient capability; the login session hands cage CAP_WAKE_ALARM. Drop them all.
+AmbientCapabilities=
+CapabilityBoundingSet=
 # Wait for a real backend response; ordering after a Type=simple service only guarantees
 # that its process was spawned, not that Uvicorn is already listening.
 ExecStartPre=/bin/sh -c 'for n in $(seq 1 60); do /usr/bin/curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null && exit 0; sleep 1; done; exit 1'
