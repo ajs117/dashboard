@@ -63,7 +63,10 @@ function intensity(r, g, b, a) {
   // function in the first place - so it's deliberately left until there's snow to sample.
   return 0;                           // grey/brown terrain, coastlines, labels -> not rain
 }
-const LIGHT = 0.06, MODERATE = 0.5, HEAVY = 0.66;   // bucket thresholds on the scalar
+// LIGHT sits ABOVE intensity()'s 0.10 floor on purpose: every pixel that clears the alpha
+// and hue tests scores at least 0.10, so a lower threshold makes "none" unreachable and one
+// stray antialiased pixel reads as rain.
+const LIGHT = 0.14, MODERATE = 0.5, HEAVY = 0.66;   // bucket thresholds on the scalar
 function levelOf(v) {
   if (v < LIGHT) return "none";
   if (v < MODERATE) return "light";
@@ -122,6 +125,16 @@ const at = (grid, x, y) => {
   if (x < 0 || y < 0 || x >= size || y >= size) return 0;
   return grid[y * size + x];
 };
+
+// Representative intensity over a small patch: the median of the 7x7 around a point, so a
+// verdict needs the area to be wet rather than one qualifying pixel.
+function patchLevel(grid, x, y) {
+  const vals = [];
+  for (let dy = -3; dy <= 3; dy++)
+    for (let dx = -3; dx <= 3; dx++) vals.push(at(grid, x + dx, y + dy));
+  vals.sort((a, b) => a - b);
+  return vals[vals.length >> 1];
+}
 
 // Intensity-weighted centroid of the echo in a field, or null if there's too little to
 // be meaningful. This is what drives the motion estimate.
@@ -219,7 +232,10 @@ export async function radarNowcast(env, lat, lon) {
       speedKmh = 0;
     }
     const canPredict = Boolean(vx || vy);
-    const nowV = at(last, c, c);
+    // Measure "now" the same way the forecast steps measure themselves - the median of a
+    // small patch. A single centre pixel disagreed with the 7x7 peak the timeline uses, so
+    // the headline could claim rain while the bars (and the map) showed a clear gap.
+    const nowV = patchLevel(last, c, c);
     const raining = levelOf(nowV) !== "none";
 
     // If it is dry and the observed frames do not yield trustworthy movement, this radar
@@ -228,18 +244,12 @@ export async function radarNowcast(env, lat, lon) {
     if (!canPredict && !raining) return null;
 
     // Advect: intensity expected at the point in k steps = what's k*velocity upwind now.
-    // Take the strongest value in a small patch around that upwind point, not a single
-    // pixel - a front rarely tracks exactly along the centroid vector, and one stray
-    // transparent pixel shouldn't read as "no rain".
+    // Reported with the same median-of-patch statistic as the present reading, so the
+    // timeline and the "raining now" verdict are on one scale - a peak here against a
+    // single pixel there is what let the headline and the bars contradict each other.
     const upwindAt = (k) => {
       const px = c - vx * k, py = c - vy * k;
-      let peak = 0;
-      for (let dy = -3; dy <= 3; dy++) {
-        for (let dx = -3; dx <= 3; dx++) {
-          peak = Math.max(peak, at(last, Math.round(px + dx), Math.round(py + dy)));
-        }
-      }
-      return peak;
+      return patchLevel(last, Math.round(px), Math.round(py));
     };
     const future = [nowV];
     const maxComponent = Math.max(Math.abs(vx), Math.abs(vy));
@@ -311,4 +321,4 @@ export async function radarNowcast(env, lat, lon) {
   }
 }
 
-export const __test = { RADIUS, intensity, levelOf, centroid, estimateMotion };
+export const __test = { RADIUS, intensity, levelOf, centroid, estimateMotion, patchLevel };
