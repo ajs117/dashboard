@@ -76,3 +76,22 @@ test("LIGHT stays above intensity()'s floor so \"none\" is reachable", () => {
   assert.equal(floor, 0.1);
   assert.equal(levelOf(floor), "none");
 });
+
+test("a narrow leading edge is still detectable upwind", () => {
+  // The forecast path must stay sensitive to a front clipping only a column or two of the
+  // sample patch - using the median there hides an approaching edge until it has arrived,
+  // and the inbound line never draws.
+  const size = RADIUS * 2 + 1;
+  const c = RADIUS;
+  const v = intensity(136, 221, 238, 255);
+  for (const cols of [1, 2, 3]) {
+    const grid = new Float32Array(size * size);
+    for (let dy = -3; dy <= 3; dy++)
+      for (let dx = 0; dx < cols; dx++) grid[(c + dy) * size + (c - 3 + dx)] = v;
+    let peak = 0;
+    for (let dy = -3; dy <= 3; dy++)
+      for (let dx = -3; dx <= 3; dx++) peak = Math.max(peak, grid[(c + dy) * size + (c + dx)]);
+    assert.notEqual(levelOf(peak), "none", `${cols}/7 columns should register upwind`);
+    assert.equal(levelOf(patchLevel(grid, c, c)), "none", `${cols}/7 is not raining here yet`);
+  }
+});

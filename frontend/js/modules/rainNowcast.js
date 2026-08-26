@@ -232,9 +232,9 @@ export async function radarNowcast(env, lat, lon) {
       speedKmh = 0;
     }
     const canPredict = Boolean(vx || vy);
-    // Measure "now" the same way the forecast steps measure themselves - the median of a
-    // small patch. A single centre pixel disagreed with the 7x7 peak the timeline uses, so
-    // the headline could claim rain while the bars (and the map) showed a clear gap.
+    // "Raining now" is a claim about this spot, so it needs the area to be wet: the median
+    // of the patch, not one pixel. A single centre pixel could clear LIGHT off a stray
+    // antialiased dot and report rain over a visibly clear gap.
     const nowV = patchLevel(last, c, c);
     const raining = levelOf(nowV) !== "none";
 
@@ -244,14 +244,22 @@ export async function radarNowcast(env, lat, lon) {
     if (!canPredict && !raining) return null;
 
     // Advect: intensity expected at the point in k steps = what's k*velocity upwind now.
-    // Reported with the same median-of-patch statistic as the present reading, so the
-    // timeline and the "raining now" verdict are on one scale - a peak here against a
-    // single pixel there is what let the headline and the bars contradict each other.
+    // Deliberately the PEAK of the patch, not its median: an approaching front's leading
+    // edge may clip only a couple of columns, and a median misses it entirely until it has
+    // already arrived. "Now" needs area to be convincing; "upwind" needs sensitivity.
     const upwindAt = (k) => {
       const px = c - vx * k, py = c - vy * k;
-      return patchLevel(last, Math.round(px), Math.round(py));
+      let peak = 0;
+      for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          peak = Math.max(peak, at(last, Math.round(px + dx), Math.round(py + dy)));
+        }
+      }
+      return peak;
     };
-    const future = [nowV];
+    // Seeded with the peak (upwindAt(0)) so every bar in the timeline is the same statistic;
+    // `raining` above stays on the stricter median.
+    const future = [upwindAt(0)];
     const maxComponent = Math.max(Math.abs(vx), Math.abs(vy));
     const availableSteps = canPredict
       ? Math.min(HORIZON, Math.floor((RADIUS - 4) / maxComponent)) : 0;
