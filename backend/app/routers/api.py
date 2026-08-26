@@ -14,6 +14,9 @@ from ..providers import (
 )
 from .config_api import require_admin
 
+# A failed Ring poll is worth retrying soon; a good one is expensive enough to keep.
+_RING_ERROR_TTL = 20.0
+
 router = APIRouter(prefix="/api", tags=["data"])
 
 
@@ -189,7 +192,14 @@ async def get_ring_cameras(request: Request) -> dict[str, Any]:
     _require_local(request)
     cfg = config.get()
     ttl = _ttls().get("ring_cameras", 300)
-    return await cache.get_or_fetch("ring_cameras", ttl, lambda: ring.list_cameras(cfg))
+    result = await cache.get_or_fetch("ring_cameras", ttl, lambda: ring.list_cameras(cfg))
+    # list_cameras reports failure in its payload rather than raising, so the cache treats a
+    # transient Ring timeout as a good value and pins "no cameras" on screen for the whole
+    # TTL. Expire a failed result quickly so the next poll retries instead.
+    data = result.get("data") or {}
+    if isinstance(data, dict) and data.get("error"):
+        cache.expire_after("ring_cameras", _RING_ERROR_TTL)
+    return result
 
 
 @router.get("/ring/snapshot/{cam_id}")

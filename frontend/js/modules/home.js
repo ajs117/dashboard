@@ -108,7 +108,6 @@ export const home = {
               }<span class="tile-badge" hidden>!</span></button>`).join("")}
           </div>
           <button class="car-arrow" id="apps-next" aria-label="next">›</button>
-          <div class="tap-hint">press anywhere for apps</div>
         </div>
         <div class="app-menu" id="app-menu" hidden></div>
 

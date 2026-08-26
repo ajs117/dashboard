@@ -129,3 +129,39 @@ async def test_clear_does_not_recache_an_in_flight_old_value():
 
     fresh = await c.get_or_fetch("k", ttl=100, coro=lambda: asyncio.sleep(0, result="new"))
     assert fresh["data"] == "new"
+
+
+async def test_expire_after_shortens_a_cached_entry() -> None:
+    c = TTLCache()
+    calls = 0
+
+    async def fetch() -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        return {"error": "boom"}
+
+    await c.get_or_fetch("k", 300, fetch)
+    assert calls == 1
+    await c.get_or_fetch("k", 300, fetch)
+    assert calls == 1, "still within TTL, should be served from cache"
+
+    c.expire_after("k", 0)
+    await c.get_or_fetch("k", 300, fetch)
+    assert calls == 2, "expired entry must be refetched"
+
+
+async def test_a_good_refetch_clears_a_shortened_expiry() -> None:
+    c = TTLCache()
+    calls = 0
+
+    async def fetch() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"n": calls}
+
+    await c.get_or_fetch("k", 300, fetch)
+    c.expire_after("k", 0)
+    await c.get_or_fetch("k", 300, fetch)      # refetches, entry is new
+    assert calls == 2
+    await c.get_or_fetch("k", 300, fetch)      # must be cached again, not re-expired
+    assert calls == 2, "a successful refetch should restore the full TTL"

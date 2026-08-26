@@ -22,6 +22,9 @@ class _Entry:
     value: Any
     fetched_at: float
     error: str | None = None
+    # Hard deadline overriding the caller's TTL; set by expire_after for a payload that
+    # reports a failure the cache cannot see as an exception.
+    expires_at: float | None = None
 
 
 @dataclass
@@ -81,7 +84,7 @@ class TTLCache:
     ) -> dict[str, Any]:
         now = time.time()
         entry = self._store.get(key)
-        if entry is not None and (now - entry.fetched_at) < ttl:
+        if entry is not None and self._is_fresh(entry, ttl, now):
             return self._wrap(entry, fresh=True)
 
         state = self._lock_for(key)
@@ -90,7 +93,7 @@ class TTLCache:
                 # Re-check: another waiter may have refreshed while we waited.
                 entry = self._store.get(key)
                 now = time.time()
-                if entry is not None and (now - entry.fetched_at) < ttl:
+                if entry is not None and self._is_fresh(entry, ttl, now):
                     return self._wrap(entry, fresh=True)
                 generation = self._generation
                 try:
@@ -109,6 +112,25 @@ class TTLCache:
             state.users -= 1
             if state.users == 0 and self._locks.get(key) is state:
                 self._locks.pop(key, None)
+
+    def expire_after(self, key: str, ttl: float) -> None:
+        """Leave a cached entry no more than `ttl` seconds of life from now.
+
+        For a value that is technically a successful fetch but carries a failure, so the
+        caller's own (long) TTL shouldn't pin it. Never extends an entry's life.
+        """
+        entry = self._store.get(key)
+        if entry is None:
+            return
+        deadline = time.time() + max(0.0, ttl)
+        if entry.expires_at is None or deadline < entry.expires_at:
+            entry.expires_at = deadline
+
+    @staticmethod
+    def _is_fresh(entry: _Entry, ttl: float, now: float) -> bool:
+        if entry.expires_at is not None and now >= entry.expires_at:
+            return False
+        return (now - entry.fetched_at) < ttl
 
     @staticmethod
     def _wrap(entry: _Entry, fresh: bool) -> dict[str, Any]:

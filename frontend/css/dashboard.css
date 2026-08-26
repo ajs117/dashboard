@@ -91,8 +91,6 @@ html, body {
 /* Tile coordinates on the kiosk digitiser drift. The whole home view is the launcher input
    target; tiles are display-only until the full-screen scanning selector is shown. */
 .app-tile { pointer-events: none; }
-.tap-hint { position: absolute; top: -1px; right: 6px; font-size: 11px;
-  color: var(--muted); pointer-events: none; }
 
 /* Two-press scanning selector: first press opens it, second opens the highlighted row. */
 .app-menu { position: absolute; inset: 0; z-index: 900; background: rgba(13,17,23,.97);
