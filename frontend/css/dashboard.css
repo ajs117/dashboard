@@ -359,12 +359,14 @@ html, body {
 .rain-next { font-size: 16px; margin-top: 4px; }
 .rain-next .soon { color: var(--warn); font-weight: 700; }
 .rain-next .near { color: var(--accent); font-weight: 700; }
+.rain-move { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .rain-foot { font-size: 11px; color: var(--muted); margin-top: 8px; }
-.spark { display: flex; align-items: flex-end; gap: 4px; height: 30px; margin-top: 10px; }
+.spark { display: flex; align-items: flex-end; gap: 4px; height: 26px; margin-top: 8px; }
 .spark .bar { flex: 1; border-radius: 2px 2px 0 0; background: var(--line); }
 .spark .bar.near { background: var(--warn); }
 .spark .bar.on { background: var(--accent); }
-.spark-cap { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.spark-scale { display: flex; justify-content: space-between; font-size: 11px;
+  color: var(--muted); margin-top: 3px; }
 
 /* ============ TRAINS — British station departure board (amber, dot-matrix feel) ====== */
 .trains { height: 100%; display: flex; flex-direction: column; background: #070707;

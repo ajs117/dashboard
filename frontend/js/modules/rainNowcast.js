@@ -136,51 +136,119 @@ function patchLevel(grid, x, y) {
   return vals[vals.length >> 1];
 }
 
-// Intensity-weighted centroid of the echo in a field, or null if there's too little to
-// be meaningful. This is what drives the motion estimate.
-function centroid(grid) {
-  const size = RADIUS * 2 + 1;
-  let sx = 0, sy = 0, w = 0, n = 0;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const v = grid[y * size + x];
-      if (v > 0) { sx += x * v; sy += y * v; w += v; n++; }
+// --- motion ----------------------------------------------------------------------------
+//
+// Motion is measured by sliding consecutive frames over each other until they line up
+// (template matching), NOT by tracking where the echo's centre of mass sits.
+//
+// The centroid version this replaces was measured against live radar getting the answer
+// backwards: a band travelling north at 30 km/h left echo off the top of the window while
+// new cells formed behind it, so the intensity-weighted mean crept SOUTH at 6 km/h. It was
+// reporting growth and decay, not translation. Lining the patterns up reads the thing that
+// actually advects, and on those same frames returned north at 30 km/h on all 7 pairs.
+
+const SIZE = RADIUS * 2 + 1;
+const COARSE = 6, FINE = 3;              // pyramid factors the search runs on
+const COARSE_HALF = 9, FINE_HALF = 16;   // template half-width, in that level's own pixels
+const COARSE_SPAN = 5;                   // ±30 full px/frame ≈ 135 km/h at a 10-minute step
+// Mean template intensity below this means there is nothing to track. Kept low - roughly a
+// single small shower - because the tie-break above and the agreement check below already
+// handle a near-empty template; this only rejects the completely pointless case.
+const MIN_TEMPLATE_WET = 0.001;
+
+// Box-mean downsample of a square grid, so a ±30px search costs thousands of operations
+// rather than millions - the Pi Zero has to do this every refresh.
+function shrink(grid, factor) {
+  const out = Math.floor(SIZE / factor);
+  const small = new Float32Array(out * out);
+  for (let y = 0; y < out; y++) {
+    for (let x = 0; x < out; x++) {
+      let sum = 0;
+      for (let dy = 0; dy < factor; dy++)
+        for (let dx = 0; dx < factor; dx++) sum += grid[(y * factor + dy) * SIZE + x * factor + dx];
+      small[y * out + x] = sum / (factor * factor);
     }
   }
-  if (n < 40 || w <= 0) return null;      // a few stray pixels aren't a trackable field
-  return { x: sx / w, y: sy / w, n };
+  return small;
 }
 
-// Estimate cell motion (px/frame) from centroid movement across the recent frame series.
-// A brute-force block correlator was both slow and unstable when fronts grew or faded.
-// Centroids are O(pixels) and degrade to null instead of producing a bogus zero vector;
-// the agreement check below filters frames whose echo shapes change inconsistently.
+// How badly the newer frame's central template disagrees with the older frame displaced by
+// (vx,vy). Samples off the edge count as dry, which is what the tile there would show.
+function ssdAt(older, newer, size, half, vx, vy) {
+  const c = size >> 1;
+  let sum = 0;
+  for (let y = c - half; y <= c + half; y++) {
+    for (let x = c - half; x <= c + half; x++) {
+      const ox = x - vx, oy = y - vy;
+      const a = (ox < 0 || oy < 0 || ox >= size || oy >= size) ? 0 : older[oy * size + ox];
+      const d = newer[y * size + x] - a;
+      sum += d * d;
+    }
+  }
+  return sum;
+}
+
+// The displacement that best slides the older frame under the newer one, searched over a
+// square around `guess` then refined to sub-pixel by fitting a parabola to the error either
+// side of the minimum. Ties go to the smaller displacement so a featureless pair returns
+// ~zero rather than whichever corner the scan reached first.
+function bestShift(older, newer, size, half, guessX, guessY, span) {
+  let bx = guessX, by = guessY, best = Infinity;
+  for (let vy = guessY - span; vy <= guessY + span; vy++) {
+    for (let vx = guessX - span; vx <= guessX + span; vx++) {
+      const s = ssdAt(older, newer, size, half, vx, vy);
+      if (s < best || (s === best && vx * vx + vy * vy < bx * bx + by * by)) {
+        best = s; bx = vx; by = vy;
+      }
+    }
+  }
+  const refine = (horizontal) => {
+    const lo = ssdAt(older, newer, size, half, bx - (horizontal ? 1 : 0), by - (horizontal ? 0 : 1));
+    const hi = ssdAt(older, newer, size, half, bx + (horizontal ? 1 : 0), by + (horizontal ? 0 : 1));
+    const curve = lo - 2 * best + hi;
+    if (curve <= 0) return 0;
+    return Math.max(-0.5, Math.min(0.5, (lo - hi) / (2 * curve)));
+  };
+  return { vx: bx + refine(true), vy: by + refine(false) };
+}
+
+// Displacement in full-window px per frame between two consecutive fields: a wide coarse
+// search, then a fine one around its answer. Null when the newer template is essentially
+// dry, because the error surface is then flat and the best match arbitrary.
+function pairShift(older, newer) {
+  const fineSize = Math.floor(SIZE / FINE);
+  const fineNew = shrink(newer, FINE);
+  const c = fineSize >> 1;
+  let wet = 0, n = 0;
+  for (let y = c - FINE_HALF; y <= c + FINE_HALF; y++)
+    for (let x = c - FINE_HALF; x <= c + FINE_HALF; x++) { wet += fineNew[y * fineSize + x]; n++; }
+  if (wet / n < MIN_TEMPLATE_WET) return null;
+
+  const coarseSize = Math.floor(SIZE / COARSE);
+  const coarse = bestShift(shrink(older, COARSE), shrink(newer, COARSE),
+                           coarseSize, COARSE_HALF, 0, 0, COARSE_SPAN);
+  const scale = COARSE / FINE;
+  const fine = bestShift(shrink(older, FINE), fineNew, fineSize, FINE_HALF,
+                         Math.round(coarse.vx * scale), Math.round(coarse.vy * scale), 2);
+  return { vx: fine.vx * FINE, vy: fine.vy * FINE };
+}
+
 const median = (values) => {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
-// Use the median of every consecutive valid centroid displacement. The old implementation
-// compared one arbitrarily chosen old frame with the newest; one cell appearing at the edge
-// could swing that single vector across the map and produce a very confident, very wrong
-// line. Requiring a majority of frame-to-frame vectors to agree rejects that failure mode.
+// Median of every adjacent-frame displacement. One pair can be thrown by a cell blowing up
+// or a partly-loaded tile, so a majority of them have to agree on a direction before the
+// vector is used at all - otherwise no line and no ETA.
 function estimateMotion(fields) {
   const samples = [];
-  let previous = null, previousIndex = -1;
-  fields.forEach((field, index) => {
-    const point = field ? centroid(field) : null;
-    if (!point) return;
-    if (previous) {
-      const gap = index - previousIndex;
-      if (gap > 0) samples.push({
-        vx: (point.x - previous.x) / gap,
-        vy: (point.y - previous.y) / gap,
-      });
-    }
-    previous = point;
-    previousIndex = index;
-  });
+  for (let i = 1; i < fields.length; i++) {
+    if (!fields[i - 1] || !fields[i]) continue;      // dropped frame: no adjacent pair here
+    const shift = pairShift(fields[i - 1], fields[i]);
+    if (shift) samples.push(shift);
+  }
   if (samples.length < 2) return null;
   const vx = median(samples.map((s) => s.vx));
   const vy = median(samples.map((s) => s.vy));
@@ -278,39 +346,6 @@ export async function radarNowcast(env, lat, lon) {
 
     const timeline = future.map((v) => ({ mm: Math.round(v * 100) / 100, prob: null }));
 
-    // Where is the echo that reaches us in ~1 hour? It's sitting `velocity * 60min` upwind
-    // right now, so convert that pixel offset back to a real coordinate for the map to
-    // draw a line to. Only meaningful if the field is actually moving and there IS echo
-    // there - otherwise the line would point confidently at empty sky.
-    let inbound = null;
-    if (canPredict) {
-      // Point at the cell that will actually REACH you: the first future step with rain in
-      // it, within the next hour. (Using a fixed 60-minute point instead meant that when
-      // rain was due in 20 minutes the hour mark was clear sky, so no line was drawn at all
-      // - technically correct, useless in practice.) If it's already raining, look ahead to
-      // whatever is next in the hour.
-      const kMax = Math.max(1, Math.round(60 / stepMin));
-      const limit = Math.min(kMax, future.length - 1);
-      let kTarget = null;
-      for (let k = 1; k <= limit; k++) {
-        if (levelOf(future[k]) !== "none") {
-          kTarget = k;
-          if (!raining) break;            // dry: nearest inbound echo gives the start ETA
-        }
-      }
-      if (kTarget != null) {
-        const sx = gx - vx * kTarget, sy = gy - vy * kTarget;
-        const intensityThere = upwindAt(kTarget);   // same 7×7 sample used by the prediction
-        inbound = {
-          lat: y2lat(sy),
-          lon: x2lon(sx),
-          minutes: Math.round(kTarget * stepMin),
-          level: levelOf(intensityThere),
-          speed_kmh: Math.round(speedKmh),
-        };
-      }
-    }
-
     // Movement of the radar field itself, independent of whether any rain reaches us.
     // The map's green upwind line is drawn from this, so it stays on a dry map - it shows
     // which way the sky is moving, which is not a rain prediction.
@@ -327,7 +362,6 @@ export async function radarNowcast(env, lat, lon) {
     }
 
     return {
-      inbound,
       motion,
       raining_now: raining,
       level: raining ? levelOf(nowV) : levelOf(Math.max(...future)),
@@ -345,4 +379,4 @@ export async function radarNowcast(env, lat, lon) {
   }
 }
 
-export const __test = { RADIUS, intensity, levelOf, centroid, estimateMotion, patchLevel };
+export const __test = { RADIUS, intensity, levelOf, estimateMotion, pairShift, patchLevel };

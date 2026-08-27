@@ -4,7 +4,7 @@ import { esc } from "../util.js";
 import { radarNowcast } from "./rainNowcast.js";
 
 export const radar = {
-  _map: null, _layer: null, _refresh: null, _fade: null, _inbound: null, _framePath: null,
+  _map: null, _layer: null, _refresh: null, _fade: null, _upwind: null, _framePath: null,
 
   async mount(el, ctx) {
     el.innerHTML = `
@@ -33,12 +33,11 @@ export const radar = {
     setTimeout(() => map.invalidateSize(), 50);
 
     // Green line from your location pointing at where the weather is coming FROM: look
-    // along it to see what is heading your way. Always drawn once the field's movement can
-    // be measured (or, failing that, from the model's wind direction) - it indicates
-    // movement, not rain, so it belongs on a dry map too. When an echo is actually due, its
-    // position is marked at the far end.
-    this._drawInbound = (from, inbound, motion, windDirDeg) => {
-      if (this._inbound) { this._inbound.forEach((l) => this._map.removeLayer(l)); this._inbound = null; }
+    // along it to see what is heading your way. Drawn whenever the field's movement can be
+    // measured (or, failing that, from the model's wind direction) - it shows movement, not
+    // rain, so it belongs on a dry map too.
+    this._drawUpwind = (from, motion, windDirDeg) => {
+      if (this._upwind) { this._upwind.forEach((l) => this._map.removeLayer(l)); this._upwind = null; }
       const map = this._map;
       if (!map) return;
       const layers = [];
@@ -70,19 +69,7 @@ export const radar = {
         }).addTo(map));
       }
 
-      if (inbound && inbound.level !== "none") {
-        const to = [inbound.lat, inbound.lon];
-        const colour = inbound.level === "heavy" ? "#ff8c1a"
-          : inbound.level === "moderate" ? "#4ea3ff" : "#7fd8ff";
-        layers.push(L.circleMarker(to, {
-          radius: 8, color: "#ffffff", weight: 2, fillColor: colour, fillOpacity: 0.9,
-        }).addTo(map).bindTooltip(
-          `${inbound.level} rain · ~${inbound.minutes}m${inbound.speed_kmh ? ` · ${inbound.speed_kmh} km/h` : ""}`,
-          { permanent: true, direction: "top", className: "inbound-tip" },
-        ));
-      }
-
-      this._inbound = layers.length ? layers : null;
+      this._upwind = layers.length ? layers : null;
     };
 
     const load = async () => {
@@ -104,8 +91,7 @@ export const radar = {
           data = { ...rn, location: (fc.data && fc.data.location) || ctx.config?.location?.label || "" };
           stale = false;
         }
-        this._drawInbound(center, rn && rn.inbound, rn && rn.motion,
-                          fc.data && fc.data.wind_dir);
+        this._drawUpwind(center, rn && rn.motion, fc.data && fc.data.wind_dir);
         const panel = el.querySelector("#rain-panel");
         if (panel) this._renderPanel(panel, data, stale);
       } catch (e) {
@@ -151,8 +137,13 @@ export const radar = {
     this._framePath = f.path;
   },
 
-  _fromDir(fc) {
-    return fc.from_compass ? ` · from the ${esc(fc.from_compass)}` : "";
+  // Which way the weather is coming from and how fast. Shown in every state, raining
+  // included - that is the line you check against what the map is doing.
+  _movement(fc) {
+    if (!fc.from_compass) return "";
+    const kmh = fc.motion && fc.motion.speed_kmh;
+    return `<div class="rain-move">Coming from the ${esc(fc.from_compass)}${
+      kmh ? ` · ${kmh} km/h` : ""}</div>`;
   },
 
   _renderPanel(el, fc, stale) {
@@ -164,40 +155,41 @@ export const radar = {
         line = fc.minutes_until_stop != null
           ? `<span class="soon">Stops in ~${fc.minutes_until_stop} min</span>`
           : `<span class="muted">${fc.horizon_minutes > 0
-            ? `Continues through the next ${fc.horizon_minutes} min of radar coverage`
+            ? `Still raining in ${fc.horizon_minutes} min`
             : "Duration uncertain"}</span>`;
         break;
       case "starting":
         cls = "r-soon"; head = `🌧️ Rain soon`;
-        line = `<span class="soon">Starts in ~${fc.minutes_until_start} min</span>${this._fromDir(fc)}`;
+        line = `<span class="soon">Starts in ~${fc.minutes_until_start} min</span>`;
         break;
       default:
         cls = "r-dry"; head = `🌞 Dry`;
-        line = `<span class="muted">No rain expected in the next ${
-          fc.horizon_minutes == null ? "2 hours" : `${fc.horizon_minutes} min`}${
-          fc.from_compass ? " · from the " + esc(fc.from_compass) : ""}</span>`;
+        line = `<span class="muted">No rain in the next ${
+          fc.horizon_minutes == null ? "2 hours" : `${fc.horizon_minutes} min`}</span>`;
     }
     el.className = `rain-panel ${cls}`;
     el.innerHTML = `
       <div class="rain-now">${head}</div>
       <div class="rain-next">${line}</div>
+      ${this._movement(fc)}
       ${this._timeline(fc.timeline, fc.horizon_minutes)}
       <div class="rain-foot">${esc(fc.location || "")}${stale ? " · delayed" : ""}</div>`;
   },
 
-  // Labelled precip chart; radar coverage can make the trustworthy horizon shorter than 2h.
+  // Precip bars over the trustworthy horizon (radar coverage can make it shorter than 2h),
+  // with a time scale under them - bars of equal height and no axis said nothing at all.
   _timeline(tl, horizonMinutes) {
-    if (!tl || !tl.length) return "";
+    if (!tl || tl.length < 2) return "";
     const max = Math.max(0.5, ...tl.map((s) => s.mm || 0));   // scale; floor so light rain shows
-    const anyRain = tl.some((s) => (s.mm || 0) > 0);
     const bars = tl.map((s) => {
       const mm = s.mm || 0;
       const h = mm > 0 ? Math.max(8, (mm / max) * 100) : 3;
       return `<span class="bar ${mm > 0 ? "on" : "off"}" style="height:${h}%"></span>`;
     }).join("");
-    const horizon = horizonMinutes == null ? "2h" : (horizonMinutes > 0 ? `${horizonMinutes}m` : "now");
-    const caption = anyRain ? `Next ${horizon} (rain)` : `Next ${horizon} — no rain expected`;
-    return `<div class="spark">${bars}</div><div class="spark-cap">${caption}</div>`;
+    if (horizonMinutes == null || horizonMinutes <= 0) return `<div class="spark">${bars}</div>`;
+    return `<div class="spark">${bars}</div>
+      <div class="spark-scale"><span>now</span><span>+${Math.round(horizonMinutes / 2)}m</span>`
+      + `<span>+${horizonMinutes}m</span></div>`;
   },
 
   unmount() {
@@ -206,6 +198,6 @@ export const radar = {
     if (this._map) { this._map.remove(); this._map = null; }
     this._layer = null;
     this._framePath = null;
-    this._inbound = null;      // layers died with the map; drop the refs
+    this._upwind = null;      // layers died with the map; drop the refs
   },
 };
