@@ -32,24 +32,57 @@ export const radar = {
     this._map = map;
     setTimeout(() => map.invalidateSize(), 50);
 
-    // Draw only when an observed radar echo is projected to reach the location. The old
-    // always-on green wind line looked like a rain prediction even on a completely dry map.
-    this._drawInbound = (from, inbound) => {
+    // Green line from your location pointing at where the weather is coming FROM: look
+    // along it to see what is heading your way. Always drawn once the field's movement can
+    // be measured (or, failing that, from the model's wind direction) - it indicates
+    // movement, not rain, so it belongs on a dry map too. When an echo is actually due, its
+    // position is marked at the far end.
+    this._drawInbound = (from, inbound, motion, windDirDeg) => {
       if (this._inbound) { this._inbound.forEach((l) => this._map.removeLayer(l)); this._inbound = null; }
-      if (!this._map || !inbound || inbound.level === "none") return;
-      const to = [inbound.lat, inbound.lon];
-      const colour = inbound.level === "heavy" ? "#ff8c1a"
-        : inbound.level === "moderate" ? "#4ea3ff" : "#7fd8ff";
-      const shaft = L.polyline([from, to], {
-        color: colour, weight: 3, opacity: 0.9, dashArray: "8 6",
-      }).addTo(this._map);
-      const echo = L.circleMarker(to, {
-        radius: 8, color: "#ffffff", weight: 2, fillColor: colour, fillOpacity: 0.9,
-      }).addTo(this._map).bindTooltip(
-        `${inbound.level} rain · ~${inbound.minutes}m${inbound.speed_kmh ? ` · ${inbound.speed_kmh} km/h` : ""}`,
-        { permanent: true, direction: "top", className: "inbound-tip" },
-      );
-      this._inbound = [shaft, echo];
+      const map = this._map;
+      if (!map) return;
+      const layers = [];
+
+      let ux, uy;
+      if (motion && (motion.dx || motion.dy)) {
+        const len = Math.hypot(motion.dx, motion.dy) || 1;
+        ux = -motion.dx / len; uy = -motion.dy / len;      // upwind = against the motion
+      } else if (windDirDeg != null) {
+        // Met convention: wind_dir already IS the direction it comes from, so use it as-is.
+        const rad = (windDirDeg * Math.PI) / 180;
+        ux = Math.sin(rad); uy = -Math.cos(rad);
+      }
+
+      if (ux !== undefined) {
+        const pFrom = map.latLngToLayerPoint(from);
+        // Tip sits where the air reaching us in an hour is right now, so the length is to
+        // scale; with only a wind direction there is no distance to draw, so use a stub.
+        let drawLen = 90;
+        if (motion && motion.hour_lat != null) {
+          const pHour = map.latLngToLayerPoint([motion.hour_lat, motion.hour_lon]);
+          drawLen = Math.hypot(pHour.x - pFrom.x, pHour.y - pFrom.y);
+        }
+        // Start clear of the location dot so the line reads as separate from it.
+        const start = map.layerPointToLatLng(L.point(pFrom.x + ux * 16, pFrom.y + uy * 16));
+        const end = map.layerPointToLatLng(L.point(pFrom.x + ux * drawLen, pFrom.y + uy * drawLen));
+        layers.push(L.polyline([start, end], {
+          color: "#22dd55", weight: 4, opacity: 0.95,      // green, matching the location dot
+        }).addTo(map));
+      }
+
+      if (inbound && inbound.level !== "none") {
+        const to = [inbound.lat, inbound.lon];
+        const colour = inbound.level === "heavy" ? "#ff8c1a"
+          : inbound.level === "moderate" ? "#4ea3ff" : "#7fd8ff";
+        layers.push(L.circleMarker(to, {
+          radius: 8, color: "#ffffff", weight: 2, fillColor: colour, fillOpacity: 0.9,
+        }).addTo(map).bindTooltip(
+          `${inbound.level} rain · ~${inbound.minutes}m${inbound.speed_kmh ? ` · ${inbound.speed_kmh} km/h` : ""}`,
+          { permanent: true, direction: "top", className: "inbound-tip" },
+        ));
+      }
+
+      this._inbound = layers.length ? layers : null;
     };
 
     const load = async () => {
@@ -71,7 +104,8 @@ export const radar = {
           data = { ...rn, location: (fc.data && fc.data.location) || ctx.config?.location?.label || "" };
           stale = false;
         }
-        this._drawInbound(center, rn && rn.inbound);
+        this._drawInbound(center, rn && rn.inbound, rn && rn.motion,
+                          fc.data && fc.data.wind_dir);
         const panel = el.querySelector("#rain-panel");
         if (panel) this._renderPanel(panel, data, stale);
       } catch (e) {

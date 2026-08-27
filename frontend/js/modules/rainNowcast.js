@@ -311,8 +311,24 @@ export async function radarNowcast(env, lat, lon) {
       }
     }
 
+    // Movement of the radar field itself, independent of whether any rain reaches us.
+    // The map's green upwind line is drawn from this, so it stays on a dry map - it shows
+    // which way the sky is moving, which is not a rain prediction.
+    let motion = null;
+    if (canPredict) {
+      const kHour = Math.max(1, Math.round(60 / stepMin));
+      motion = {
+        dx: vx,
+        dy: vy,
+        hour_lat: y2lat(gy - vy * kHour),   // where the air reaching us in an hour sits now
+        hour_lon: x2lon(gx - vx * kHour),
+        speed_kmh: Math.round(speedKmh),
+      };
+    }
+
     return {
       inbound,
+      motion,
       raining_now: raining,
       level: raining ? levelOf(nowV) : levelOf(Math.max(...future)),
       status: raining ? "raining" : (startIdx != null ? "starting" : "dry"),
