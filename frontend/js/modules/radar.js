@@ -187,9 +187,18 @@ export const radar = {
       return `<span class="bar ${mm > 0 ? "on" : "off"}" style="height:${h}%"></span>`;
     }).join("");
     if (horizonMinutes == null || horizonMinutes <= 0) return `<div class="spark">${bars}</div>`;
+    // Ticks at round intervals placed proportionally, rather than a label at the midpoint:
+    // the horizon shrinks as the field speeds up (the upwind sample runs out of window), so
+    // the midpoint is usually an odd number like 50m and reads as a glitch.
+    const every = horizonMinutes > 90 ? 30 : horizonMinutes > 45 ? 20 : 10;
+    const ticks = [];
+    for (let m = every; m <= horizonMinutes; m += every) {
+      const at = (m / horizonMinutes) * 100;
+      const place = at >= 95 ? `right:0` : `left:${at.toFixed(1)}%;transform:translateX(-50%)`;
+      ticks.push(`<span style="${place}">${m}m</span>`);
+    }
     return `<div class="spark">${bars}</div>
-      <div class="spark-scale"><span>now</span><span>+${Math.round(horizonMinutes / 2)}m</span>`
-      + `<span>+${horizonMinutes}m</span></div>`;
+      <div class="spark-scale"><span class="t0">now</span>${ticks.join("")}</div>`;
   },
 
   unmount() {

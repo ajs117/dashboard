@@ -365,8 +365,10 @@ html, body {
 .spark .bar { flex: 1; border-radius: 2px 2px 0 0; background: var(--line); }
 .spark .bar.near { background: var(--warn); }
 .spark .bar.on { background: var(--accent); }
-.spark-scale { display: flex; justify-content: space-between; font-size: 11px;
-  color: var(--muted); margin-top: 3px; }
+.spark-scale { position: relative; height: 13px; font-size: 11px; color: var(--muted);
+  margin-top: 3px; }
+.spark-scale span { position: absolute; white-space: nowrap; }
+.spark-scale .t0 { left: 0; }
 
 /* ============ TRAINS — British station departure board (amber, dot-matrix feel) ====== */
 .trains { height: 100%; display: flex; flex-direction: column; background: #070707;
