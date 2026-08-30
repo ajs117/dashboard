@@ -19,9 +19,9 @@ export const radar = {
     const map = L.map("radar-map", { attributionControl: false, zoomControl: false })
       .setView(center, 9);                       // zoomed in on your location
     L.control.zoom({ position: "bottomright" }).addTo(map);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", {
+    this._retryTiles(L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", {
       maxZoom: 18, className: "basemap-lite",     // lightened via CSS so it isn't near-black
-    }).addTo(map);
+    })).addTo(map);
     // marker + range rings (10/25/50 km) for a sense of distance
     // Green, not blue: the rain echo itself is blue/cyan, so a blue dot vanished into it.
     // White outline keeps it readable over heavy (orange/yellow) echo too.
@@ -104,6 +104,23 @@ export const radar = {
     this._refresh = setInterval(load, (ctx.config?.refresh?.radar || 120) * 1000);
   },
 
+  // Leaflet gives up on a tile the moment its image errors and nothing ever asks again, so
+  // one dropped request leaves a blank rectangle sitting on the map for good. Re-request it
+  // a few times with a backoff; the cache-buster stops the browser replaying the failure.
+  _retryTiles(layer) {
+    const tries = new Map();
+    layer.on("tileerror", (e) => {
+      if (!e.tile || !e.coords) return;
+      const key = `${e.coords.z}/${e.coords.x}/${e.coords.y}`;
+      const n = tries.get(key) || 0;
+      if (n >= 3) return;
+      tries.set(key, n + 1);
+      const src = e.tile.src.split("?")[0];
+      setTimeout(() => { if (e.tile) e.tile.src = `${src}?r=${n + 1}`; }, 500 * (n + 1));
+    });
+    return layer;
+  },
+
   _showCurrent(data) {
     if (!this._map || !data) return;
     const frames = data.frames || [];
@@ -120,6 +137,7 @@ export const radar = {
     const layer = L.tileLayer(url, {
       opacity: 0.8, maxNativeZoom: 7, maxZoom: 18, zIndex: 5, crossOrigin: "anonymous",
     });
+    this._retryTiles(layer);
     const old = this._layer;
     if (old) {
       // Keep the last working frame until the replacement's visible tiles have loaded.

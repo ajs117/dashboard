@@ -95,8 +95,22 @@ async function loadImage(src) {
   }
 }
 
+// A tile that fails is not the same as a tile with no rain in it, and the difference decides
+// whether the panel says "dry" over falling rain. The Pi's wifi drops the odd request, so
+// retry with a short backoff before treating one as lost.
+async function loadTile(src, tries = 3) {
+  for (let attempt = 0; attempt < tries; attempt++) {
+    const img = await loadImage(src);
+    if (img) return img;
+    if (attempt < tries - 1) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+  }
+  return null;
+}
+
 // Render the RADIUS-window around (gx,gy) global pixels for one frame into a Float32 grid
-// of intensities. Returns null if no tile loaded (frame empty / network).
+// of intensities. Returns null unless EVERY tile covering the window loaded: a missing tile
+// leaves a silent hole of zeroes, which reads as "no rain there" and is how the panel came
+// to say dry in the rain. Better no answer than a confidently wrong one.
 async function sampleField(host, path, gx, gy) {
   const x0 = Math.round(gx) - RADIUS, y0 = Math.round(gy) - RADIUS;
   const size = RADIUS * 2 + 1;
@@ -105,14 +119,13 @@ async function sampleField(host, path, gx, gy) {
   const cx = cv.getContext("2d", { willReadFrequently: true });
   const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x0 + size) / TILE);
   const ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y0 + size) / TILE);
-  let any = false;
   for (let tx = tx0; tx <= tx1; tx++) {
     for (let ty = ty0; ty <= ty1; ty++) {
-      const img = await loadImage(`${host}${path}/${TILE}/${Z}/${tx}/${ty}/${SCHEME}.png`);
-      if (img) { cx.drawImage(img, tx * TILE - x0, ty * TILE - y0); any = true; }
+      const img = await loadTile(`${host}${path}/${TILE}/${Z}/${tx}/${ty}/${SCHEME}.png`);
+      if (!img) return null;
+      cx.drawImage(img, tx * TILE - x0, ty * TILE - y0);
     }
   }
-  if (!any) return null;
   const data = cx.getImageData(0, 0, size, size).data;
   const grid = new Float32Array(size * size);
   for (let i = 0, p = 0; i < grid.length; i++, p += 4)
