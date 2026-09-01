@@ -138,7 +138,8 @@ export const trains = {
 
     // The stop that actually matters is the one being met at the other end, not the
     // train's final destination - it runs on past Kidderminster to Worcester.
-    const herCrs = (cfg?.trains?.destination_crs || "").trim().toUpperCase();
+    const herCrs = ((d.watch && d.watch.to_crs) || cfg?.trains?.destination_crs || "")
+      .trim().toUpperCase();
     const herIdx = stops.findIndex((s) => (s.crs || "").toUpperCase() === herCrs);
     const her = herIdx >= 0 ? stops[herIdx] : stops[stops.length - 1];
     const boardIdx = stops.findIndex((s) => (s.crs || "") === (d.board_crs || ""));
@@ -168,9 +169,21 @@ export const trains = {
         pos = reached + Math.min(1, Math.max(0, (nowMin - from) / (to - from)));
       }
     }
-    const pct = (i) => (i / (stops.length - 1)) * 100;
+    // Zoom to the leg actually being travelled. Drawing the full run from Stratford to
+    // Worcester squeezed the relevant stops into a corner, and showing stations east of
+    // Birmingham on a westbound journey read as the train going the wrong way. The window
+    // is widened backwards if the train has not reached the boarding station yet, so it is
+    // always visible on the line.
+    let lo = boardIdx >= 0 ? boardIdx : 0;
+    let hi = herIdx >= 0 ? herIdx : stops.length - 1;
+    if (hi <= lo) { lo = 0; hi = stops.length - 1; }
+    if (reached >= 0 && reached < lo) lo = reached;
+    const view = stops.slice(lo, hi + 1);
+    const span = Math.max(1, view.length - 1);
+    const pct = (i) => (Math.min(span, Math.max(0, i - lo)) / span) * 100;
 
-    const dots = stops.map((s, i) => {
+    const dots = view.map((s, vi) => {
+      const i = vi + lo;
       const done = HHMM.test(s.at || "");
       const cls = done ? "done" : (next && i === reached + 1) ? "next" : "todo";
       const shown = s.at || s.et || s.st;
@@ -180,7 +193,7 @@ export const trains = {
       return `
         <div class="trk-stop ${cls} ${i === herIdx ? "is-hers" : ""} ${
           s.cancelled ? "is-cancelled" : ""}" style="left:${pct(i).toFixed(2)}%">
-          <div class="ts-time ${i % 2 ? "lo" : "hi"} ${tCls}">${esc(shown || "")}</div>
+          <div class="ts-time ${vi % 2 ? "lo" : "hi"} ${tCls}">${esc(shown || "")}</div>
           <span class="ts-dot"></span>
           <div class="ts-name">${esc(s.name || "")}</div>
         </div>`;
@@ -211,7 +224,7 @@ export const trains = {
           <div class="trk-rail"></div>
           <div class="trk-fill" style="width:${trainPct.toFixed(2)}%"></div>
           ${dots}
-          <div class="trk-train" style="left:${trainPct.toFixed(2)}%"><span>&#9646;&#9646;</span></div>
+          <div class="trk-train" style="left:${trainPct.toFixed(2)}%"><span></span></div>
         </div>
       </div>`;
 

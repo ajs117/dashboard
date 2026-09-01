@@ -52,14 +52,15 @@ def get() -> dict[str, Any] | None:
 
 
 def set_watch(service_id: str, label: str | None = None, std: str | None = None,
-              platform: str | None = None) -> dict[str, Any]:
+              platform: str | None = None, to_crs: str | None = None) -> dict[str, Any]:
     """`std`/`platform` come from the departure board the train was pushed from: Darwin's
     service details leave the board station's own time and platform null, so the board is
-    the only place they are known."""
+    the only place they are known. `to_crs` is where the passenger actually gets off, which
+    is rarely where the train terminates."""
     global _watch
     _load()
-    _watch = {"service_id": service_id, "label": label, "std": std,
-              "platform": platform, "at": time.time()}
+    _watch = {"service_id": service_id, "label": label, "std": std, "platform": platform,
+              "to_crs": (to_crs or "").strip().upper() or None, "at": time.time()}
     _save()
     return dict(_watch)
 

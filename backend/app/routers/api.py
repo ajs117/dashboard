@@ -127,6 +127,7 @@ class WatchIn(BaseModel):
     label: str | None = Field(default=None, max_length=120)
     std: str | None = Field(default=None, max_length=5)
     platform: str | None = Field(default=None, max_length=8)
+    to_crs: str | None = Field(default=None, max_length=3)
 
 
 @router.post("/trains/watch")
@@ -137,7 +138,7 @@ async def set_train_watch(
 ) -> dict[str, Any]:
     require_admin_or_local(request, x_admin_token)
     return {"ok": True, "watch": watch.set_watch(
-        body.service_id, body.label, body.std, body.platform)}
+        body.service_id, body.label, body.std, body.platform, body.to_crs)}
 
 
 @router.delete("/trains/watch")

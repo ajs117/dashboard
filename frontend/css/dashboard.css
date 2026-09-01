@@ -481,9 +481,17 @@ html, body {
 .trk-stop.is-hers .ts-name { color: #7dffa0; font-weight: 700; font-size: 14px; }
 .trk-stop.is-hers .ts-time { color: #7dffa0; }
 
-.trk-train { position: absolute; top: 69px; transform: translateX(-50%);
-  transition: left .8s linear; color: #fff; font-size: 19px; line-height: 1;
-  text-shadow: 0 0 10px rgba(255,255,255,.9), 0 0 20px rgba(255,176,40,.8); }
+/* The train rides ON the rail rather than floating above it, and is perforated to the
+   same dot pitch as everything else so it belongs to the dot-matrix board. */
+.trk-train { position: absolute; top: 88px; transform: translateX(-50%);
+  width: 40px; height: 24px; transition: left .8s linear; z-index: 3; }
+.trk-train span { display: block; width: 100%; height: 100%; background: #fff;
+  border-radius: 4px 11px 11px 4px;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 44%, transparent 50%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 44%, transparent 50%);
+  -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
+  filter: drop-shadow(0 0 7px rgba(255,255,255,.95)) drop-shadow(0 0 16px rgba(255,176,40,.8)); }
+.track.is-cancelled .trk-train span { background: #ff6a5a; }
 
 /* ============ TRACKER (custom watch routines) ============ */
 .tracker { height: 100%; padding: 72px 24px 24px; overflow: auto; position: relative; }
