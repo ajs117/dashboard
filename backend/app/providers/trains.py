@@ -28,6 +28,10 @@ class RailProvider(ABC):
     async def fetch(self, cfg: dict[str, Any]) -> dict[str, Any]:
         ...
 
+    @abstractmethod
+    async def fetch_service(self, cfg: dict[str, Any], service_id: str) -> dict[str, Any]:
+        ...
+
 
 class DarwinSoapProvider(RailProvider):
     def __init__(self) -> None:
@@ -91,6 +95,7 @@ class DarwinSoapProvider(RailProvider):
                         "et": cp.get("et"),
                     })
             services.append({
+                "service_id": s.get("serviceID"),   # opaque Darwin handle; needed to watch it
                 "std": s.get("std"),            # scheduled departure
                 "etd": s.get("etd"),            # estimated/expected ("On time", "Delayed", time)
                 "platform": s.get("platform"),
@@ -124,6 +129,68 @@ class DarwinSoapProvider(RailProvider):
     async def fetch(self, cfg: dict[str, Any]) -> dict[str, Any]:
         return await asyncio.to_thread(self._call, cfg)
 
+    # --- following one service ------------------------------------------------------
+    @staticmethod
+    def _stop(cp: dict[str, Any], scheduled: str | None = None,
+              est: str | None = None, act: str | None = None) -> dict[str, Any]:
+        return {
+            "name": cp.get("locationName"),
+            "crs": cp.get("crs"),
+            "st": scheduled if scheduled is not None else cp.get("st"),
+            "et": est if est is not None else cp.get("et"),
+            "at": act if act is not None else cp.get("at"),
+            "cancelled": bool(cp.get("isCancelled")),
+        }
+
+    @classmethod
+    def _points(cls, block: dict[str, Any] | None) -> list[dict[str, Any]]:
+        lists = ((block or {}).get("callingPointList")) or []
+        out = []
+        for lst in lists:
+            for cp in (lst.get("callingPoint") or []):
+                out.append(cls._stop(cp))
+        return out
+
+    def _call_service(self, cfg: dict[str, Any], service_id: str) -> dict[str, Any]:
+        from zeep.helpers import serialize_object
+
+        token = (cfg.get("trains") or {}).get("token") or ""
+        self._ensure_client(token)
+        d = serialize_object(self._client.service.GetServiceDetails(
+            _soapheaders=[self._header], serviceID=service_id))
+        return self._parse_service(d, service_id)
+
+    @classmethod
+    def _parse_service(cls, d: dict[str, Any], service_id: str) -> dict[str, Any]:
+        # The board station sits BETWEEN its previous and subsequent calling points, and is
+        # the only stop whose times arrive as flat fields rather than in a calling-point list.
+        here = cls._stop(d, scheduled=d.get("std") or d.get("sta"),
+                         est=d.get("etd") or d.get("eta"),
+                         act=d.get("atd") or d.get("ata"))
+        stops = cls._points(d.get("previousCallingPoints")) + [here] \
+            + cls._points(d.get("subsequentCallingPoints"))
+        origin = ((d.get("origin") or {}).get("location") or [{}])[0]
+        dest = ((d.get("destination") or {}).get("location") or [{}])[0]
+        return {
+            "service_id": service_id,
+            "operator": d.get("operator"),
+            "platform": d.get("platform"),
+            "cancelled": bool(d.get("isCancelled")),
+            "cancel_reason": _strip_html(d.get("cancelReason") or "") or None,
+            "delay_reason": _strip_html(d.get("delayReason") or "") or None,
+            "overdue": _strip_html(d.get("overdueMessage") or "") or None,
+            "board_crs": d.get("crs"),
+            "origin": origin.get("locationName"),
+            "origin_crs": origin.get("crs"),
+            "destination": dest.get("locationName"),
+            "destination_crs": dest.get("crs"),
+            "generated_at": str(d.get("generatedAt")) if d.get("generatedAt") else None,
+            "stops": stops,
+        }
+
+    async def fetch_service(self, cfg: dict[str, Any], service_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self._call_service, cfg, service_id)
+
 
 _provider: RailProvider | None = None
 
@@ -137,3 +204,7 @@ def get_provider() -> RailProvider:
 
 async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
     return await get_provider().fetch(cfg)
+
+
+async def fetch_service(cfg: dict[str, Any], service_id: str) -> dict[str, Any]:
+    return await get_provider().fetch_service(cfg, service_id)

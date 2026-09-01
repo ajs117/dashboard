@@ -7,6 +7,27 @@ function expClass(etd, cancelled) {
   return etd.toLowerCase() === "on time" ? "exp-ontime" : "exp-late";
 }
 
+const HHMM = /^\d{1,2}:\d{2}$/;
+const toMin = (t) => (HHMM.test(t || "") ? (+t.split(":")[0]) * 60 + (+t.split(":")[1]) : null);
+
+// Minutes late, wrapping midnight: a train scheduled 23:58 arriving 00:04 is 6 late, not
+// -1434. Anything beyond half a day is the wrap, not a genuinely enormous delay.
+function lateBy(sched, actual) {
+  const s = toMin(sched), a = toMin(actual);
+  if (s == null || a == null) return null;
+  let d = a - s;
+  if (d > 720) d -= 1440;
+  if (d < -720) d += 1440;
+  return d;
+}
+
+// Where the train has actually got to: the last stop reported with a real arrival time.
+function progressOf(stops) {
+  let reached = -1;
+  stops.forEach((s, i) => { if (HHMM.test(s.at || "")) reached = i; });
+  return reached;
+}
+
 export const trains = {
   _timer: null, _clkTimer: null,
 
@@ -23,6 +44,17 @@ export const trains = {
     this._clkTimer = setInterval(tickClock, 1000);
     const load = async () => {
       try {
+        // A watched service takes over the whole page: when you have pushed a train, that
+        // is the only thing you want to look at. Falls back to the board when it clears.
+        const w = await ctx.api("/api/trains/watch").catch(() => null);
+        if (ctx.isCurrent && !ctx.isCurrent()) return;
+        if (w && w.data) {
+          const root = el.querySelector("#trains");
+          if (!root) return;
+          ctx.setStale(w.stale, "trains");
+          this._renderWatch(root, w.data);
+          return;
+        }
         const env = await ctx.api("/api/trains");
         if (ctx.isCurrent && !ctx.isCurrent()) return;
         const root = el.querySelector("#trains");
@@ -92,6 +124,95 @@ export const trains = {
       { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
     this._setupTickers(el);
+  },
+
+  // The followed service, drawn as a line diagram: a dot-matrix rail with a stop per
+  // station and the train's real position along it. Between two stops the marker is
+  // interpolated on the timetable, so it creeps forward instead of jumping station to
+  // station - the whole point of watching is seeing it move.
+  _renderWatch(el, d) {
+    const stops = d.stops || [];
+    if (stops.length < 2) { el.innerHTML = `<div class="board-loading muted">No route data</div>`; return; }
+    const dest = stops[stops.length - 1];
+    const reached = progressOf(stops);
+    const arrived = HHMM.test(dest.at || "");
+    const destEt = /on time/i.test(dest.et || "") ? dest.st : dest.et;
+    const delay = lateBy(dest.st, dest.at || destEt);
+
+    let status, scls;
+    if (d.cancelled) { status = "Cancelled"; scls = "w-cancelled"; }
+    else if (arrived) { status = "Arrived"; scls = "w-ontime"; }
+    else if (delay == null) { status = "No report"; scls = "w-unknown"; }
+    else if (delay <= 0) { status = "On time"; scls = "w-ontime"; }
+    else { status = `${delay} min late`; scls = "w-late"; }
+
+    const next = reached >= 0 && reached + 1 < stops.length ? stops[reached + 1] : null;
+    const where = d.cancelled ? (d.cancel_reason || "This service is cancelled")
+      : arrived ? `Arrived ${dest.at}`
+      : next ? `Next stop ${next.name}` : "Awaiting departure";
+
+    // Fractional position along the line, 0..n-1.
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    let pos = Math.max(0, reached);
+    if (reached >= 0 && next) {
+      const from = toMin(stops[reached].at) ?? toMin(stops[reached].st);
+      const to = toMin(next.et) ?? toMin(next.st);
+      if (from != null && to != null && to > from) {
+        pos = reached + Math.min(1, Math.max(0, (nowMin - from) / (to - from)));
+      }
+    }
+    const pct = (i) => (i / (stops.length - 1)) * 100;
+
+    const dots = stops.map((s, i) => {
+      const done = HHMM.test(s.at || "");
+      const cls = done ? "done" : (next && i === reached + 1) ? "next" : "todo";
+      const et = /on time/i.test(s.et || "") ? "" : s.et || "";
+      const shown = s.at || et;
+      const late = lateBy(s.st, shown);
+      const tCls = late == null ? "" : late > 0 ? "exp-late" : "exp-ontime";
+      return `
+        <div class="trk-stop ${cls} ${s.cancelled ? "is-cancelled" : ""}" style="left:${pct(i).toFixed(2)}%">
+          <div class="ts-time ${tCls}">${esc(shown || s.st || "")}</div>
+          <span class="ts-dot"></span>
+          <div class="ts-name">${esc(s.name || "")}</div>
+        </div>`;
+    }).join("");
+
+    const trainPct = pct(pos);
+    el.innerHTML = `
+      <div class="board-head">
+        <div class="bh-title">
+          <span class="bh-station">${esc(dest.st || "")} ${esc(d.destination || "")}</span>
+          <span class="bh-crs">from ${esc(d.origin || "")}${
+            d.platform ? " · plat " + esc(d.platform) : ""}${
+            d.operator ? " · " + esc(d.operator) : ""}</span>
+        </div>
+        <div class="bh-clock" id="bh-clock"></div>
+      </div>
+      <div class="wstat ${scls}">
+        <div class="w-big">${esc(status)}</div>
+        <div class="w-where">${esc(where)}</div>
+        <button class="w-stop" id="w-stop">Stop watching</button>
+      </div>
+      ${d.delay_reason && !d.cancelled ? `<div class="nrcc">⚠️ ${esc(d.delay_reason)}</div>` : ""}
+      <div class="track ${d.cancelled ? "is-cancelled" : ""}">
+        <div class="trk-inner">
+          <div class="trk-rail"></div>
+          <div class="trk-fill" style="width:${trainPct.toFixed(2)}%"></div>
+          ${dots}
+          <div class="trk-train" style="left:${trainPct.toFixed(2)}%"><span>&#9646;&#9646;</span></div>
+        </div>
+      </div>`;
+
+    const clk = el.querySelector("#bh-clock");
+    if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
+      { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const btn = el.querySelector("#w-stop");
+    if (btn) btn.onclick = async () => {
+      btn.textContent = "Stopping…";
+      await fetch("/api/trains/watch", { method: "DELETE" }).catch(() => {});
+    };
   },
 
   // Scroll the "calling at …" line like a real platform board, but only when it actually

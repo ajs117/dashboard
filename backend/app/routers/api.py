@@ -5,14 +5,15 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 
-from .. import config
+from .. import config, watch
 from ..cache import cache
 from ..providers import (
     aircraft, air_quality, claude_usage, ecoflow, facts, flightwatch, govee, news, photos,
     radar, radar_forecast, ring, route, stocks, trains, weather,
 )
-from .config_api import require_admin
+from .config_api import require_admin, require_admin_or_local
 
 # A failed Ring poll is worth retrying soon; a good one is expensive enough to keep.
 _RING_ERROR_TTL = 20.0
@@ -95,6 +96,49 @@ async def get_trains() -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="trains module disabled")
     ttl = _ttls().get("trains", 30)
     return await cache.get_or_fetch("trains", ttl, lambda: trains.fetch(cfg))
+
+
+@router.get("/trains/watch")
+async def get_train_watch() -> dict[str, Any]:
+    """The followed service, refreshed. Envelope matches the other endpoints so the
+    frontend's stale handling works unchanged; `data: null` simply means nothing is
+    being watched."""
+    w = watch.get()
+    if not w:
+        return {"data": None, "stale": False, "fetched_at": time.time()}
+    cfg = config.get()
+    ttl = _ttls().get("train_watch", 30)
+    sid = w["service_id"]
+    env = await cache.get_or_fetch(
+        f"train_watch:{sid}", ttl, lambda: trains.fetch_service(cfg, sid))
+    data = dict(env.get("data") or {})
+    data["watch"] = w
+    return {**env, "data": data}
+
+
+class WatchIn(BaseModel):
+    service_id: str = Field(min_length=1, max_length=64)
+    label: str | None = Field(default=None, max_length=120)
+
+
+@router.post("/trains/watch")
+async def set_train_watch(
+    body: WatchIn,
+    request: Request,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin_or_local(request, x_admin_token)
+    return {"ok": True, "watch": watch.set_watch(body.service_id, body.label)}
+
+
+@router.delete("/trains/watch")
+async def clear_train_watch(
+    request: Request,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_admin_or_local(request, x_admin_token)
+    watch.clear()
+    return {"ok": True}
 
 
 @router.get("/news")
