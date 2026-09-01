@@ -444,18 +444,18 @@ html, body {
 
 .track { flex: 1; display: flex; align-items: center; padding: 0 150px 30px 55px;
   overflow: hidden; }
-.trk-inner { position: relative; width: 100%; height: 190px; }
+.trk-inner { position: relative; width: 100%; height: 360px; }
 /* The rail is drawn as discrete dots so it reads as dot-matrix rather than a drawn line. */
-.trk-rail, .trk-fill { position: absolute; top: 96px; height: 8px; left: 0;
+.trk-rail, .trk-fill { position: absolute; top: 140px; height: 10px; left: 0;
   background-image: radial-gradient(circle at 50% 50%, currentColor 42%, transparent 48%);
-  background-size: 8px 8px; }
+  background-size: 10px 10px; }
 .trk-rail { right: 0; color: rgba(255,174,38,.28); }
 .trk-fill { color: #ffc23a; filter: drop-shadow(0 0 5px rgba(255,176,40,.7));
   transition: width .8s linear; }
 .track.is-cancelled .trk-fill { color: #ff6a5a; }
 
 .trk-stop { position: absolute; top: 0; width: 0; height: 100%; }
-.ts-dot { position: absolute; top: 93px; left: -7px; width: 14px; height: 14px;
+.ts-dot { position: absolute; top: 135px; left: -9px; width: 18px; height: 18px;
   border-radius: 50%; background: #070707; border: 3px solid rgba(255,174,38,.45); }
 .trk-stop.done .ts-dot { background: #ffc23a; border-color: #ffc23a;
   box-shadow: 0 0 9px rgba(255,176,40,.85); }
@@ -466,32 +466,32 @@ html, body {
 @keyframes tspulse { 50% { box-shadow: 0 0 20px rgba(255,176,40,1); } }
 .trk-stop.is-cancelled .ts-dot { border-color: #ff6a5a; }
 /* Names are rotated: ten stations will not fit side by side across 1024px horizontally. */
-.ts-name { position: absolute; top: 117px; left: 2px; transform-origin: left top;
-  transform: rotate(38deg); font-size: 14px; white-space: nowrap;
+.ts-name { position: absolute; top: 166px; left: 4px; transform-origin: left top;
+  transform: rotate(38deg); font-size: 19px; white-space: nowrap;
   color: rgba(255,174,38,.62); }
 .trk-stop.next .ts-name, .trk-stop.done .ts-name, .trk-stop.here .ts-name { color: #ffc777; }
-.ts-time { position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
-  font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+.ts-time { position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+  font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
   color: rgba(255,174,38,.75); }
 
 .trk-stop.todo .ts-time { color: rgba(255,174,38,.45); }
 
 /* The stop being met at — the reason the train is being watched at all. */
-.trk-stop.is-hers .ts-dot { width: 20px; height: 20px; top: 90px; left: -10px;
+.trk-stop.is-hers .ts-dot { width: 26px; height: 26px; top: 131px; left: -13px;
   border-color: #57e06a; box-shadow: 0 0 12px rgba(87,224,106,.85); }
 .trk-stop.is-hers.done .ts-dot { background: #57e06a; }
-.trk-stop.is-hers .ts-name { color: #7dffa0; font-weight: 700; font-size: 14px; }
+.trk-stop.is-hers .ts-name { color: #7dffa0; font-weight: 700; font-size: 20px; }
 .trk-stop.is-hers .ts-time { color: #7dffa0; }
 
 /* The train rides ON the rail rather than floating above it, and is perforated to the
    same dot pitch as everything else so it belongs to the dot-matrix board. */
-.trk-train { position: absolute; top: 88px; transform: translateX(-50%);
-  width: 40px; height: 24px; transition: left .8s linear; z-index: 3; }
+.trk-train { position: absolute; top: 128px; transform: translateX(-50%);
+  width: 52px; height: 32px; transition: left .8s linear; z-index: 3; }
 .trk-train span { display: block; width: 100%; height: 100%; background: #fff;
-  border-radius: 4px 11px 11px 4px;
+  border-radius: 5px 15px 15px 5px;
   -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 44%, transparent 50%);
   mask-image: radial-gradient(circle at 50% 50%, #000 44%, transparent 50%);
-  -webkit-mask-size: 4px 4px; mask-size: 4px 4px;
+  -webkit-mask-size: 5px 5px; mask-size: 5px 5px;
   filter: drop-shadow(0 0 7px rgba(255,255,255,.95)) drop-shadow(0 0 16px rgba(255,176,40,.8)); }
 .track.is-cancelled .trk-train span { background: #ff6a5a; }
 

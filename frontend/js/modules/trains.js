@@ -156,16 +156,30 @@ export const trains = {
     else if (delay <= 0) { status = "On time"; scls = "w-ontime"; }
     else { status = `${delay} min late`; scls = "w-late"; }
 
-    // Darwin only publishes a stop's actual time once the call is logged, which lags the
-    // train physically being there - so "next stop X" sat on screen while she was already
-    // standing at X. Once the estimated arrival has passed, treat it as arrived: `et` is
-    // revised as the train runs late, so this does not fire early on a delayed service.
-    const nextDue = next ? (toMin(next.et) ?? toMin(next.st)) : null;
-    const atNext = Boolean(next) && nextDue != null && nowMin >= nextDue;
+    // A Darwin calling point carries one time, the arrival - there is no departure to read.
+    // So the instant a stop logged its `at` the panel jumped to "next stop" while the train
+    // was still standing on that platform. Hold the station for the dwell, and at the far
+    // end call it arrived once the expected time has passed rather than waiting for `at`,
+    // which Darwin only writes after the call is logged.
+    const DWELL_MIN = 2;
+    const lateNow = reached >= 0 ? (lateBy(stops[reached].st, stops[reached].at) ?? 0) : 0;
+    // `et` is null on plenty of services; carrying the current lateness onto `st` beats
+    // treating the timetable as gospel and announcing arrivals a late train hasn't made.
+    const due = (s) => {
+      const e = toMin(s.et);
+      if (e != null) return e;
+      const t = toMin(s.st);
+      return t == null ? null : t + lateNow;
+    };
+    const sinceStop = reached >= 0 ? toMin(stops[reached].at) : null;
+    const nextDue = next ? due(next) : null;
+    const standing = reached >= 0 && sinceStop != null && nowMin - sinceStop < DWELL_MIN
+      ? reached
+      : (next && nextDue != null && nowMin >= nextDue ? reached + 1 : -1);
 
     const where = d.cancelled ? (d.cancel_reason || "This service is cancelled")
       : arrived ? `Into ${her.name}`
-      : atNext ? `At ${next.name}`
+      : standing >= 0 ? `At ${stops[standing].name}`
       : next ? `Next stop ${next.name}` : "Awaiting departure";
 
     // Fractional position along the line, 0..n-1.
@@ -193,8 +207,8 @@ export const trains = {
     const dots = view.map((s, vi) => {
       const i = vi + lo;
       const done = HHMM.test(s.at || "");
-      const isNext = next && i === reached + 1;
-      const cls = done ? "done" : isNext ? (atNext ? "here" : "next") : "todo";
+      const cls = i === standing ? "here"
+        : done ? "done" : (next && i === reached + 1) ? "next" : "todo";
       // Fall back to the schedule rather than printing a non-time like "On time" on the axis.
       const shown = HHMM.test(s.at || "") ? s.at : HHMM.test(s.et || "") ? s.et : s.st;
       const late = lateBy(s.st, s.at || s.et);
