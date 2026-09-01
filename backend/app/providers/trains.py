@@ -133,12 +133,21 @@ class DarwinSoapProvider(RailProvider):
     @staticmethod
     def _stop(cp: dict[str, Any], scheduled: str | None = None,
               est: str | None = None, act: str | None = None) -> dict[str, Any]:
+        st = scheduled if scheduled is not None else cp.get("st")
+
+        # Darwin writes "On time" into the time fields instead of a clock value, including
+        # into `at` for a stop already made. Left as-is that is not a time, so the journey
+        # reads as never having reached those stops - the progress marker sticks at the
+        # last incidentally-late station. On time means it happened at the scheduled time.
+        def clock(v: str | None) -> str | None:
+            return st if (v or "").strip().lower() == "on time" and st else v
+
         return {
             "name": cp.get("locationName"),
             "crs": cp.get("crs"),
-            "st": scheduled if scheduled is not None else cp.get("st"),
-            "et": est if est is not None else cp.get("et"),
-            "at": act if act is not None else cp.get("at"),
+            "st": st,
+            "et": clock(est if est is not None else cp.get("et")),
+            "at": clock(act if act is not None else cp.get("at")),
             "cancelled": bool(cp.get("isCancelled")),
         }
 
@@ -171,6 +180,9 @@ class DarwinSoapProvider(RailProvider):
             + cls._points(d.get("subsequentCallingPoints"))
         origin = ((d.get("origin") or {}).get("location") or [{}])[0]
         dest = ((d.get("destination") or {}).get("location") or [{}])[0]
+        # Darwin leaves origin/destination null on some services; the route we just built
+        # already knows both ends, so fall back to it rather than showing a blank header.
+        first, last = (stops[0] if stops else {}), (stops[-1] if stops else {})
         return {
             "service_id": service_id,
             "operator": d.get("operator"),
@@ -180,10 +192,10 @@ class DarwinSoapProvider(RailProvider):
             "delay_reason": _strip_html(d.get("delayReason") or "") or None,
             "overdue": _strip_html(d.get("overdueMessage") or "") or None,
             "board_crs": d.get("crs"),
-            "origin": origin.get("locationName"),
-            "origin_crs": origin.get("crs"),
-            "destination": dest.get("locationName"),
-            "destination_crs": dest.get("crs"),
+            "origin": origin.get("locationName") or first.get("name"),
+            "origin_crs": origin.get("crs") or first.get("crs"),
+            "destination": dest.get("locationName") or last.get("name"),
+            "destination_crs": dest.get("crs") or last.get("crs"),
             "generated_at": str(d.get("generatedAt")) if d.get("generatedAt") else None,
             "stops": stops,
         }

@@ -113,12 +113,20 @@ async def get_train_watch() -> dict[str, Any]:
         f"train_watch:{sid}", ttl, lambda: trains.fetch_service(cfg, sid))
     data = dict(env.get("data") or {})
     data["watch"] = w
+    # Fill the board station's blanks from what the board knew when it was pushed.
+    data["platform"] = data.get("platform") or w.get("platform")
+    if w.get("std"):
+        for s in data.get("stops") or []:
+            if s.get("crs") == data.get("board_crs") and not s.get("st"):
+                s["st"] = w["std"]
     return {**env, "data": data}
 
 
 class WatchIn(BaseModel):
     service_id: str = Field(min_length=1, max_length=64)
     label: str | None = Field(default=None, max_length=120)
+    std: str | None = Field(default=None, max_length=5)
+    platform: str | None = Field(default=None, max_length=8)
 
 
 @router.post("/trains/watch")
@@ -128,7 +136,8 @@ async def set_train_watch(
     x_admin_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     require_admin_or_local(request, x_admin_token)
-    return {"ok": True, "watch": watch.set_watch(body.service_id, body.label)}
+    return {"ok": True, "watch": watch.set_watch(
+        body.service_id, body.label, body.std, body.platform)}
 
 
 @router.delete("/trains/watch")

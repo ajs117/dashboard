@@ -51,10 +51,15 @@ def get() -> dict[str, Any] | None:
     return dict(_watch) if _watch else None
 
 
-def set_watch(service_id: str, label: str | None = None) -> dict[str, Any]:
+def set_watch(service_id: str, label: str | None = None, std: str | None = None,
+              platform: str | None = None) -> dict[str, Any]:
+    """`std`/`platform` come from the departure board the train was pushed from: Darwin's
+    service details leave the board station's own time and platform null, so the board is
+    the only place they are known."""
     global _watch
     _load()
-    _watch = {"service_id": service_id, "label": label, "at": time.time()}
+    _watch = {"service_id": service_id, "label": label, "std": std,
+              "platform": platform, "at": time.time()}
     _save()
     return dict(_watch)
 
