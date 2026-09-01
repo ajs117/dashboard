@@ -434,16 +434,19 @@ html, body {
   mask-image: radial-gradient(circle at 50% 50%, #000 54%, transparent 60%);
   -webkit-mask-size: .15em .15em; mask-size: .15em .15em; }
 .w-where { font-size: 16px; color: rgba(255,174,38,.72); flex: 1; }
+.w-eta { font-size: 15px; color: rgba(255,174,38,.62); }
+.w-eta b { font-size: 26px; margin-left: 8px; font-variant-numeric: tabular-nums; }
 .w-stop { background: transparent; color: rgba(255,174,38,.7); font: inherit; font-size: 13px;
   border: 1px solid rgba(255,174,38,.35); border-radius: 6px; padding: 7px 14px; }
 .w-ontime .w-big { color: #57e06a; text-shadow: 0 0 8px rgba(87,224,106,.45); }
 .w-late .w-big { color: #ffd24a; }
 .w-cancelled .w-big { color: #ff6a5a; text-shadow: 0 0 8px rgba(255,106,90,.45); }
 
-.track { flex: 1; display: flex; align-items: center; padding: 0 60px; overflow: hidden; }
-.trk-inner { position: relative; width: 100%; height: 150px; }
+.track { flex: 1; display: flex; align-items: center; padding: 0 150px 30px 55px;
+  overflow: hidden; }
+.trk-inner { position: relative; width: 100%; height: 190px; }
 /* The rail is drawn as discrete dots so it reads as dot-matrix rather than a drawn line. */
-.trk-rail, .trk-fill { position: absolute; top: 71px; height: 8px; left: 0;
+.trk-rail, .trk-fill { position: absolute; top: 96px; height: 8px; left: 0;
   background-image: radial-gradient(circle at 50% 50%, currentColor 42%, transparent 48%);
   background-size: 8px 8px; }
 .trk-rail { right: 0; color: rgba(255,174,38,.28); }
@@ -452,21 +455,33 @@ html, body {
 .track.is-cancelled .trk-fill { color: #ff6a5a; }
 
 .trk-stop { position: absolute; top: 0; width: 0; height: 100%; }
-.ts-dot { position: absolute; top: 68px; left: -7px; width: 14px; height: 14px;
+.ts-dot { position: absolute; top: 93px; left: -7px; width: 14px; height: 14px;
   border-radius: 50%; background: #070707; border: 3px solid rgba(255,174,38,.45); }
 .trk-stop.done .ts-dot { background: #ffc23a; border-color: #ffc23a;
   box-shadow: 0 0 9px rgba(255,176,40,.85); }
 .trk-stop.next .ts-dot { border-color: #ffc23a; box-shadow: 0 0 9px rgba(255,176,40,.6); }
 .trk-stop.is-cancelled .ts-dot { border-color: #ff6a5a; }
 /* Names are rotated: ten stations will not fit side by side across 1024px horizontally. */
-.ts-name { position: absolute; top: 92px; left: 2px; transform-origin: left top;
+.ts-name { position: absolute; top: 117px; left: 2px; transform-origin: left top;
   transform: rotate(38deg); font-size: 13px; white-space: nowrap;
   color: rgba(255,174,38,.62); }
 .trk-stop.next .ts-name, .trk-stop.done .ts-name { color: #ffc777; }
-.ts-time { position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
-  font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Two rows, alternating: 24 labels on one line collide into an unreadable smear. */
+.ts-time { position: absolute; left: 50%; transform: translateX(-50%);
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+  color: rgba(255,174,38,.75); }
+.ts-time.hi { top: 40px; }
+.ts-time.lo { top: 66px; }
+.trk-stop.todo .ts-time { color: rgba(255,174,38,.45); }
 
-.trk-train { position: absolute; top: 44px; transform: translateX(-50%);
+/* The stop being met at — the reason the train is being watched at all. */
+.trk-stop.is-hers .ts-dot { width: 20px; height: 20px; top: 90px; left: -10px;
+  border-color: #57e06a; box-shadow: 0 0 12px rgba(87,224,106,.85); }
+.trk-stop.is-hers.done .ts-dot { background: #57e06a; }
+.trk-stop.is-hers .ts-name { color: #7dffa0; font-weight: 700; font-size: 14px; }
+.trk-stop.is-hers .ts-time { color: #7dffa0; }
+
+.trk-train { position: absolute; top: 69px; transform: translateX(-50%);
   transition: left .8s linear; color: #fff; font-size: 19px; line-height: 1;
   text-shadow: 0 0 10px rgba(255,255,255,.9), 0 0 20px rgba(255,176,40,.8); }
 

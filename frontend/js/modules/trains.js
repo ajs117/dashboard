@@ -52,7 +52,7 @@ export const trains = {
           const root = el.querySelector("#trains");
           if (!root) return;
           ctx.setStale(w.stale, "trains");
-          this._renderWatch(root, w.data);
+          this._renderWatch(root, w.data, cfg);
           return;
         }
         const env = await ctx.api("/api/trains");
@@ -130,25 +130,31 @@ export const trains = {
   // station and the train's real position along it. Between two stops the marker is
   // interpolated on the timetable, so it creeps forward instead of jumping station to
   // station - the whole point of watching is seeing it move.
-  _renderWatch(el, d) {
+  _renderWatch(el, d, cfg) {
     const stops = d.stops || [];
     if (stops.length < 2) { el.innerHTML = `<div class="board-loading muted">No route data</div>`; return; }
-    const dest = stops[stops.length - 1];
     const reached = progressOf(stops);
-    const arrived = HHMM.test(dest.at || "");
-    const destEt = /on time/i.test(dest.et || "") ? dest.st : dest.et;
-    const delay = lateBy(dest.st, dest.at || destEt);
+    const next = reached >= 0 && reached + 1 < stops.length ? stops[reached + 1] : null;
 
+    // The stop that actually matters is the one being met at the other end, not the
+    // train's final destination - it runs on past Kidderminster to Worcester.
+    const herCrs = (cfg?.trains?.destination_crs || "").trim().toUpperCase();
+    const herIdx = stops.findIndex((s) => (s.crs || "").toUpperCase() === herCrs);
+    const her = herIdx >= 0 ? stops[herIdx] : stops[stops.length - 1];
+    const boardIdx = stops.findIndex((s) => (s.crs || "") === (d.board_crs || ""));
+    const board = boardIdx >= 0 ? stops[boardIdx] : stops[0];
+
+    const arrived = HHMM.test(her.at || "");
+    const delay = lateBy(her.st, her.at || her.et);
     let status, scls;
     if (d.cancelled) { status = "Cancelled"; scls = "w-cancelled"; }
-    else if (arrived) { status = "Arrived"; scls = "w-ontime"; }
+    else if (arrived) { status = `Arrived ${her.at}`; scls = "w-ontime"; }
     else if (delay == null) { status = "No report"; scls = "w-unknown"; }
     else if (delay <= 0) { status = "On time"; scls = "w-ontime"; }
     else { status = `${delay} min late`; scls = "w-late"; }
 
-    const next = reached >= 0 && reached + 1 < stops.length ? stops[reached + 1] : null;
     const where = d.cancelled ? (d.cancel_reason || "This service is cancelled")
-      : arrived ? `Arrived ${dest.at}`
+      : arrived ? `Into ${her.name}`
       : next ? `Next stop ${next.name}` : "Awaiting departure";
 
     // Fractional position along the line, 0..n-1.
@@ -167,24 +173,26 @@ export const trains = {
     const dots = stops.map((s, i) => {
       const done = HHMM.test(s.at || "");
       const cls = done ? "done" : (next && i === reached + 1) ? "next" : "todo";
-      const et = /on time/i.test(s.et || "") ? "" : s.et || "";
-      const shown = s.at || et;
-      const late = lateBy(s.st, shown);
+      const shown = s.at || s.et || s.st;
+      const late = lateBy(s.st, s.at || s.et);
       const tCls = late == null ? "" : late > 0 ? "exp-late" : "exp-ontime";
+      // Times alternate between two rows: 24 labels on one line overlap into mush.
       return `
-        <div class="trk-stop ${cls} ${s.cancelled ? "is-cancelled" : ""}" style="left:${pct(i).toFixed(2)}%">
-          <div class="ts-time ${tCls}">${esc(shown || s.st || "")}</div>
+        <div class="trk-stop ${cls} ${i === herIdx ? "is-hers" : ""} ${
+          s.cancelled ? "is-cancelled" : ""}" style="left:${pct(i).toFixed(2)}%">
+          <div class="ts-time ${i % 2 ? "lo" : "hi"} ${tCls}">${esc(shown || "")}</div>
           <span class="ts-dot"></span>
           <div class="ts-name">${esc(s.name || "")}</div>
         </div>`;
     }).join("");
 
     const trainPct = pct(pos);
+    const etaCls = delay == null ? "" : delay > 0 ? "exp-late" : "exp-ontime";
     el.innerHTML = `
       <div class="board-head">
         <div class="bh-title">
-          <span class="bh-station">${esc(dest.st || "")} ${esc(d.destination || "")}</span>
-          <span class="bh-crs">from ${esc(d.origin || "")}${
+          <span class="bh-station">${esc(board.st || "")} → ${esc(her.name || "")}</span>
+          <span class="bh-crs">from ${esc(board.name || d.origin || "")}${
             d.platform ? " · plat " + esc(d.platform) : ""}${
             d.operator ? " · " + esc(d.operator) : ""}</span>
         </div>
@@ -193,6 +201,8 @@ export const trains = {
       <div class="wstat ${scls}">
         <div class="w-big">${esc(status)}</div>
         <div class="w-where">${esc(where)}</div>
+        <div class="w-eta">${esc(her.name || "")}
+          <b class="${etaCls}">${esc(her.at || her.et || her.st || "")}</b></div>
         <button class="w-stop" id="w-stop">Stop watching</button>
       </div>
       ${d.delay_reason && !d.cancelled ? `<div class="nrcc">⚠️ ${esc(d.delay_reason)}</div>` : ""}
