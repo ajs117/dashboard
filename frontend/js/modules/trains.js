@@ -246,7 +246,8 @@ export const trains = {
         <button class="w-stop" id="w-stop">Stop watching</button>
       </div>
       ${d.delay_reason && !d.cancelled ? `<div class="nrcc">⚠️ ${esc(d.delay_reason)}</div>` : ""}
-      <div class="track ${d.cancelled ? "is-cancelled" : ""}">
+      <div class="track ${d.cancelled ? "is-cancelled" : ""} ${
+        delay > 0 && !arrived ? "hers-late" : ""}">
         <div class="trk-inner">
           <div class="trk-rail"></div>
           <div class="trk-fill" style="width:${trainPct.toFixed(2)}%"></div>

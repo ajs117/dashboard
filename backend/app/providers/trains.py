@@ -251,9 +251,7 @@ class DarwinSoapProvider(RailProvider):
                 if svc.get("sta") != sta or (
                         destination and loc.get("locationName") != destination):
                     continue
-                gap = _gap(sta, svc.get("std"))
-                if gap:
-                    out[crs] = gap
+                out[crs] = _gap(sta, svc.get("std"))
                 break
         return out
 
@@ -280,35 +278,68 @@ async def fetch_service(cfg: dict[str, Any], service_id: str) -> dict[str, Any]:
     return await get_provider().fetch_service(cfg, service_id)
 
 
-_DWELL_TTL = 3600.0
-_dwells: dict[str, tuple[float, dict[str, int]]] = {}
-_dwell_busy: set[str] = set()
+# A stop's dwell is a timetable property, so once resolved it is kept for the journey.
+# Resolving it needs the train to still be listed on that station's board, which it is not
+# once it has called there - so unresolved stops are retried as the poll comes round, and
+# each stop is remembered individually rather than the whole leg being one all-or-nothing
+# lookup that freezes its gaps in for an hour.
+_DWELL_RETRY = 240.0
+_DWELL_TRIES = 4
+_dwell_sid: str | None = None
+_dwell_known: dict[str, int] = {}
+_dwell_tried: dict[str, tuple[float, int]] = {}
+_dwell_busy = False
 
 
 def dwell_map(service_id: str) -> dict[str, int]:
-    got = _dwells.get(service_id)
-    return dict(got[1]) if got and time.time() - got[0] < _DWELL_TTL else {}
+    return dict(_dwell_known) if service_id == _dwell_sid else {}
+
+
+def _pending(targets: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
+    out = []
+    for t in targets:
+        crs = t.get("crs")
+        if not crs or crs in _dwell_known:
+            continue
+        last, n = _dwell_tried.get(crs, (0.0, 0))
+        if n < _DWELL_TRIES and now - last >= _DWELL_RETRY:
+            out.append(t)
+    return out
 
 
 def ensure_dwells(cfg: dict[str, Any], service_id: str, targets: list[dict[str, Any]],
                   destination: str | None) -> None:
-    """Start filling the dwell map if it isn't already known.
+    """Start resolving any stop whose departure time isn't known yet.
 
-    Deliberately fire-and-forget: it is a dozen SOAP calls, and blocking the watch on it
-    would leave the board empty for ten seconds every time a train is pushed. The next
-    30-second poll picks the answer up.
+    Deliberately fire-and-forget: each stop is its own SOAP call, and blocking the watch on
+    them would leave the board empty every time a train is pushed. The next poll picks up
+    whatever landed.
     """
-    if service_id in _dwell_busy or dwell_map(service_id):
+    global _dwell_sid, _dwell_busy
+    if service_id != _dwell_sid:
+        _dwell_sid = service_id
+        _dwell_known.clear()
+        _dwell_tried.clear()
+    if _dwell_busy:
         return
-    _dwell_busy.add(service_id)
+    now = time.time()
+    todo = _pending(targets, now)
+    if not todo:
+        return
+    for t in todo:
+        last, n = _dwell_tried.get(t["crs"], (0.0, 0))
+        _dwell_tried[t["crs"]] = (now, n + 1)
+    _dwell_busy = True
 
     async def run() -> None:
+        global _dwell_busy
         try:
-            got = await get_provider().fetch_dwells(cfg, targets, destination)
-            _dwells[service_id] = (time.time(), got)
+            got = await get_provider().fetch_dwells(cfg, todo, destination)
+            if service_id == _dwell_sid:
+                _dwell_known.update(got)
         except Exception:  # noqa: BLE001 - departures are a nicety; the board still works
             pass
         finally:
-            _dwell_busy.discard(service_id)
+            _dwell_busy = False
 
     asyncio.get_running_loop().create_task(run())

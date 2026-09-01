@@ -482,6 +482,18 @@ html, body {
 .trk-stop.is-hers.done .ts-dot { background: #57e06a; }
 .trk-stop.is-hers .ts-name { color: #7dffa0; font-weight: 700; font-size: 20px; }
 .trk-stop.is-hers .ts-time { color: #7dffa0; }
+/* Green on her stop is the identity marker, but read as "on time" while the train was
+   running late. The bigger ring and bold name carry the identity; the colour follows the
+   delay, so the one stop being watched never contradicts the headline. */
+.track.hers-late .trk-stop.is-hers .ts-dot { border-color: #ffd24a;
+  box-shadow: 0 0 12px rgba(255,210,74,.85); }
+.track.hers-late .trk-stop.is-hers.done .ts-dot { background: #ffd24a; }
+.track.hers-late .trk-stop.is-hers .ts-name,
+.track.hers-late .trk-stop.is-hers .ts-time { color: #ffd24a; }
+.track.is-cancelled .trk-stop.is-hers .ts-dot { border-color: #ff6a5a;
+  background: none; box-shadow: 0 0 12px rgba(255,106,90,.85); }
+.track.is-cancelled .trk-stop.is-hers .ts-name,
+.track.is-cancelled .trk-stop.is-hers .ts-time { color: #ff8a7a; }
 
 /* The train rides ON the rail rather than floating above it, and is perforated to the
    same dot pitch as everything else so it belongs to the dot-matrix board. */
