@@ -117,8 +117,14 @@ async def get_train_watch() -> dict[str, Any]:
     data["platform"] = data.get("platform") or w.get("platform")
     if w.get("std"):
         for s in data.get("stops") or []:
-            if s.get("crs") == data.get("board_crs") and not s.get("st"):
-                s["st"] = w["std"]
+            if s.get("crs") != data.get("board_crs") or s.get("st"):
+                continue
+            s["st"] = w["std"]
+            # The "On time" -> clock rewrite ran while this stop still had no scheduled
+            # time to resolve against, so redo it now that the board has supplied one.
+            for k in ("et", "at"):
+                if (s.get(k) or "").strip().lower() == "on time":
+                    s[k] = w["std"]
     return {**env, "data": data}
 
 

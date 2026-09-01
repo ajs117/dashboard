@@ -463,12 +463,12 @@ html, body {
 .trk-stop.is-cancelled .ts-dot { border-color: #ff6a5a; }
 /* Names are rotated: ten stations will not fit side by side across 1024px horizontally. */
 .ts-name { position: absolute; top: 117px; left: 2px; transform-origin: left top;
-  transform: rotate(38deg); font-size: 13px; white-space: nowrap;
+  transform: rotate(38deg); font-size: 14px; white-space: nowrap;
   color: rgba(255,174,38,.62); }
 .trk-stop.next .ts-name, .trk-stop.done .ts-name { color: #ffc777; }
 /* Two rows, alternating: 24 labels on one line collide into an unreadable smear. */
 .ts-time { position: absolute; left: 50%; transform: translateX(-50%);
-  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+  font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
   color: rgba(255,174,38,.75); }
 .ts-time.hi { top: 40px; }
 .ts-time.lo { top: 66px; }

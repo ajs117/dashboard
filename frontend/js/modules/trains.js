@@ -186,7 +186,8 @@ export const trains = {
       const i = vi + lo;
       const done = HHMM.test(s.at || "");
       const cls = done ? "done" : (next && i === reached + 1) ? "next" : "todo";
-      const shown = s.at || s.et || s.st;
+      // Fall back to the schedule rather than printing a non-time like "On time" on the axis.
+      const shown = HHMM.test(s.at || "") ? s.at : HHMM.test(s.et || "") ? s.et : s.st;
       const late = lateBy(s.st, s.at || s.et);
       const tCls = late == null ? "" : late > 0 ? "exp-late" : "exp-ontime";
       // Times alternate between two rows: 24 labels on one line overlap into mush.
