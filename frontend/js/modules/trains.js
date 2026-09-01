@@ -182,14 +182,15 @@ export const trains = {
       : standing >= 0 ? `At ${stops[standing].name}`
       : next ? `Next stop ${next.name}` : "Awaiting departure";
 
-    // Fractional position along the line, 0..n-1.
+    // Fractional position along the line, 0..n-1. The target is the stop's expected time,
+    // not its scheduled one - aiming at the timetable ran the marker ahead of a late train
+    // and parked it at the platform while the train was still minutes out.
+    const from = reached >= 0 ? (toMin(stops[reached].at) ?? toMin(stops[reached].st)) : null;
+    const to = next ? due(next) : null;
+    const creeping = from != null && to != null && to > from;
     let pos = Math.max(0, reached);
-    if (reached >= 0 && next) {
-      const from = toMin(stops[reached].at) ?? toMin(stops[reached].st);
-      const to = toMin(next.et) ?? toMin(next.st);
-      if (from != null && to != null && to > from) {
-        pos = reached + Math.min(1, Math.max(0, (nowMin - from) / (to - from)));
-      }
+    if (reached >= 0 && creeping) {
+      pos = reached + Math.min(1, Math.max(0, (nowMin - from) / (to - from)));
     }
     // Zoom to the leg actually being travelled. Drawing the full run from Stratford to
     // Worcester squeezed the relevant stops into a corner, and showing stations east of
@@ -259,6 +260,26 @@ export const trains = {
     const clk = el.querySelector("#bh-clock");
     if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
       { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
+    // Between polls the marker was frozen: the position was only recomputed on the 30s
+    // data refresh, so a train "creeping" actually jumped once every half minute. Slide it
+    // on the clock between the two stops the data already fixed it between.
+    clearInterval(this._posTimer);
+    if (creeping) {
+      const p0 = pct(reached), p1 = pct(reached + 1);
+      const train = el.querySelector(".trk-train");
+      const fill = el.querySelector(".trk-fill");
+      this._posTimer = setInterval(() => {
+        if (!train || !train.isConnected) { clearInterval(this._posTimer); return; }
+        const t = new Date();
+        const m = t.getHours() * 60 + t.getMinutes() + t.getSeconds() / 60;
+        const f = Math.min(1, Math.max(0, (m - from) / (to - from)));
+        const at = `${(p0 + (p1 - p0) * f).toFixed(2)}%`;
+        train.style.left = at;
+        if (fill) fill.style.width = at;
+      }, 1000);
+    }
+
     const btn = el.querySelector("#w-stop");
     if (btn) btn.onclick = async () => {
       btn.textContent = "Stopping…";
@@ -281,5 +302,9 @@ export const trains = {
     });
   },
 
-  unmount() { clearInterval(this._timer); clearInterval(this._clkTimer); },
+  unmount() {
+    clearInterval(this._timer);
+    clearInterval(this._clkTimer);
+    clearInterval(this._posTimer);
+  },
 };
