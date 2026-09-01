@@ -125,7 +125,33 @@ async def get_train_watch() -> dict[str, Any]:
             for k in ("et", "at"):
                 if (s.get(k) or "").strip().lower() == "on time":
                     s[k] = w["std"]
+    _add_departures(cfg, sid, data, w)
     return {**env, "data": data}
+
+
+def _add_departures(cfg: dict[str, Any], sid: str, data: dict[str, Any],
+                    w: dict[str, Any]) -> None:
+    """Hang a departure time on each stop of the leg being travelled.
+
+    Darwin's calling points carry the arrival only, so the board read a minute early at
+    every station with a dwell. Only the leg is looked up: each stop is its own SOAP call.
+    """
+    stops = data.get("stops") or []
+    if not stops:
+        return
+    board = next((i for i, s in enumerate(stops)
+                  if s.get("crs") == data.get("board_crs")), 0)
+    to = (w.get("to_crs") or "").strip().upper()
+    off = next((i for i, s in enumerate(stops)
+                if (s.get("crs") or "").upper() == to), len(stops) - 1)
+    leg = stops[board:off + 1] if off > board else stops
+    trains.ensure_dwells(cfg, sid, [{"crs": s.get("crs"), "st": s.get("st")} for s in leg],
+                         data.get("destination"))
+    dwells = trains.dwell_map(sid)
+    for s in leg:
+        gap = dwells.get(s.get("crs"))
+        if gap:
+            s["sd"] = trains.shift(s.get("st"), gap)
 
 
 class WatchIn(BaseModel):

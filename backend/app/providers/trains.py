@@ -10,10 +10,31 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
 _TAG_RE = re.compile(r"<[^>]+>")
+_HHMM = re.compile(r"^\d{1,2}:\d{2}$")
+
+
+def shift(t: str | None, mins: int) -> str | None:
+    """Clock time `t` moved on by `mins`, wrapping past midnight."""
+    if not _HHMM.match(t or "") or not mins:
+        return t
+    h, m = (int(x) for x in t.split(":"))
+    v = (h * 60 + m + mins) % 1440
+    return f"{v // 60:02d}:{v % 60:02d}"
+
+
+def _gap(a: str | None, b: str | None) -> int:
+    """Whole minutes from clock time `a` to `b`, 0 if either isn't a time."""
+    if not (_HHMM.match(a or "") and _HHMM.match(b or "")):
+        return 0
+    ha, ma = (int(x) for x in a.split(":"))
+    hb, mb = (int(x) for x in b.split(":"))
+    d = (hb * 60 + mb) - (ha * 60 + ma)
+    return d if 0 < d < 60 else 0
 
 
 def _strip_html(text: str) -> str:
@@ -203,6 +224,43 @@ class DarwinSoapProvider(RailProvider):
     async def fetch_service(self, cfg: dict[str, Any], service_id: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._call_service, cfg, service_id)
 
+    # --- departure times ---------------------------------------------------------------
+    # A calling point carries only the ARRIVAL time; National Rail's own boards show the
+    # departure, which at a stop with a dwell is a minute or two later. The only place
+    # LDBWS publishes a departure for an intermediate stop is that station's own arr/dep
+    # board, so each one costs a separate call - hence the hour-long cache. The dwell is a
+    # timetable property; lateness is carried by `et`/`at` and is not baked in here.
+    def _call_dwells(self, cfg: dict[str, Any], targets: list[dict[str, Any]],
+                     destination: str | None) -> dict[str, int]:
+        from zeep.helpers import serialize_object
+
+        token = (cfg.get("trains") or {}).get("token") or ""
+        self._ensure_client(token)
+        out: dict[str, int] = {}
+        for t in targets:
+            crs, sta = t.get("crs"), t.get("st")
+            if not crs or not _HHMM.match(sta or ""):
+                continue
+            try:
+                b = serialize_object(self._client.service.GetArrDepBoardWithDetails(
+                    _soapheaders=[self._header], numRows=25, crs=crs))
+            except Exception:  # noqa: BLE001 - one unreachable station shouldn't lose the rest
+                continue
+            for svc in ((b.get("trainServices") or {}).get("service") or []):
+                loc = ((svc.get("destination") or {}).get("location") or [{}])[0]
+                if svc.get("sta") != sta or (
+                        destination and loc.get("locationName") != destination):
+                    continue
+                gap = _gap(sta, svc.get("std"))
+                if gap:
+                    out[crs] = gap
+                break
+        return out
+
+    async def fetch_dwells(self, cfg: dict[str, Any], targets: list[dict[str, Any]],
+                           destination: str | None) -> dict[str, int]:
+        return await asyncio.to_thread(self._call_dwells, cfg, targets, destination)
+
 
 _provider: RailProvider | None = None
 
@@ -220,3 +278,37 @@ async def fetch(cfg: dict[str, Any]) -> dict[str, Any]:
 
 async def fetch_service(cfg: dict[str, Any], service_id: str) -> dict[str, Any]:
     return await get_provider().fetch_service(cfg, service_id)
+
+
+_DWELL_TTL = 3600.0
+_dwells: dict[str, tuple[float, dict[str, int]]] = {}
+_dwell_busy: set[str] = set()
+
+
+def dwell_map(service_id: str) -> dict[str, int]:
+    got = _dwells.get(service_id)
+    return dict(got[1]) if got and time.time() - got[0] < _DWELL_TTL else {}
+
+
+def ensure_dwells(cfg: dict[str, Any], service_id: str, targets: list[dict[str, Any]],
+                  destination: str | None) -> None:
+    """Start filling the dwell map if it isn't already known.
+
+    Deliberately fire-and-forget: it is a dozen SOAP calls, and blocking the watch on it
+    would leave the board empty for ten seconds every time a train is pushed. The next
+    30-second poll picks the answer up.
+    """
+    if service_id in _dwell_busy or dwell_map(service_id):
+        return
+    _dwell_busy.add(service_id)
+
+    async def run() -> None:
+        try:
+            got = await get_provider().fetch_dwells(cfg, targets, destination)
+            _dwells[service_id] = (time.time(), got)
+        except Exception:  # noqa: BLE001 - departures are a nicety; the board still works
+            pass
+        finally:
+            _dwell_busy.discard(service_id)
+
+    asyncio.get_running_loop().create_task(run())
