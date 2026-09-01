@@ -145,6 +145,8 @@ export const trains = {
     const boardIdx = stops.findIndex((s) => (s.crs || "") === (d.board_crs || ""));
     const board = boardIdx >= 0 ? stops[boardIdx] : stops[0];
 
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
     const arrived = HHMM.test(her.at || "");
     const delay = lateBy(her.st, her.at || her.et);
     let status, scls;
@@ -154,13 +156,19 @@ export const trains = {
     else if (delay <= 0) { status = "On time"; scls = "w-ontime"; }
     else { status = `${delay} min late`; scls = "w-late"; }
 
+    // Darwin only publishes a stop's actual time once the call is logged, which lags the
+    // train physically being there - so "next stop X" sat on screen while she was already
+    // standing at X. Once the estimated arrival has passed, treat it as arrived: `et` is
+    // revised as the train runs late, so this does not fire early on a delayed service.
+    const nextDue = next ? (toMin(next.et) ?? toMin(next.st)) : null;
+    const atNext = Boolean(next) && nextDue != null && nowMin >= nextDue;
+
     const where = d.cancelled ? (d.cancel_reason || "This service is cancelled")
       : arrived ? `Into ${her.name}`
+      : atNext ? `At ${next.name}`
       : next ? `Next stop ${next.name}` : "Awaiting departure";
 
     // Fractional position along the line, 0..n-1.
-    const now = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
     let pos = Math.max(0, reached);
     if (reached >= 0 && next) {
       const from = toMin(stops[reached].at) ?? toMin(stops[reached].st);
@@ -185,16 +193,16 @@ export const trains = {
     const dots = view.map((s, vi) => {
       const i = vi + lo;
       const done = HHMM.test(s.at || "");
-      const cls = done ? "done" : (next && i === reached + 1) ? "next" : "todo";
+      const isNext = next && i === reached + 1;
+      const cls = done ? "done" : isNext ? (atNext ? "here" : "next") : "todo";
       // Fall back to the schedule rather than printing a non-time like "On time" on the axis.
       const shown = HHMM.test(s.at || "") ? s.at : HHMM.test(s.et || "") ? s.et : s.st;
       const late = lateBy(s.st, s.at || s.et);
       const tCls = late == null ? "" : late > 0 ? "exp-late" : "exp-ontime";
-      // Times alternate between two rows: 24 labels on one line overlap into mush.
       return `
         <div class="trk-stop ${cls} ${i === herIdx ? "is-hers" : ""} ${
           s.cancelled ? "is-cancelled" : ""}" style="left:${pct(i).toFixed(2)}%">
-          <div class="ts-time ${vi % 2 ? "lo" : "hi"} ${tCls}">${esc(shown || "")}</div>
+          <div class="ts-time ${tCls}">${esc(shown || "")}</div>
           <span class="ts-dot"></span>
           <div class="ts-name">${esc(s.name || "")}</div>
         </div>`;

@@ -460,18 +460,20 @@ html, body {
 .trk-stop.done .ts-dot { background: #ffc23a; border-color: #ffc23a;
   box-shadow: 0 0 9px rgba(255,176,40,.85); }
 .trk-stop.next .ts-dot { border-color: #ffc23a; box-shadow: 0 0 9px rgba(255,176,40,.6); }
+/* Standing at the platform: filled like a called stop, but still pulsing rather than past. */
+.trk-stop.here .ts-dot { background: #ffc23a; border-color: #ffc23a;
+  box-shadow: 0 0 12px rgba(255,176,40,.9); animation: tspulse 1.6s ease-in-out infinite; }
+@keyframes tspulse { 50% { box-shadow: 0 0 20px rgba(255,176,40,1); } }
 .trk-stop.is-cancelled .ts-dot { border-color: #ff6a5a; }
 /* Names are rotated: ten stations will not fit side by side across 1024px horizontally. */
 .ts-name { position: absolute; top: 117px; left: 2px; transform-origin: left top;
   transform: rotate(38deg); font-size: 14px; white-space: nowrap;
   color: rgba(255,174,38,.62); }
-.trk-stop.next .ts-name, .trk-stop.done .ts-name { color: #ffc777; }
-/* Two rows, alternating: 24 labels on one line collide into an unreadable smear. */
-.ts-time { position: absolute; left: 50%; transform: translateX(-50%);
+.trk-stop.next .ts-name, .trk-stop.done .ts-name, .trk-stop.here .ts-name { color: #ffc777; }
+.ts-time { position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
   font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
   color: rgba(255,174,38,.75); }
-.ts-time.hi { top: 40px; }
-.ts-time.lo { top: 66px; }
+
 .trk-stop.todo .ts-time { color: rgba(255,174,38,.45); }
 
 /* The stop being met at — the reason the train is being watched at all. */
