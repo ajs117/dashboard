@@ -485,14 +485,16 @@ html, body {
 
 /* The train rides ON the rail rather than floating above it, and is perforated to the
    same dot pitch as everything else so it belongs to the dot-matrix board. */
-.trk-train { position: absolute; top: 128px; transform: translateX(-50%);
-  width: 52px; height: 32px; transition: left .8s linear; z-index: 3; }
+/* Drawn from above, like a train on a plan of the line: a long narrow body with the cab
+   tapered to a blunt nose. The journey is always sliced left-to-right, so it faces right. */
+.trk-train { position: absolute; top: 133px; transform: translateX(-50%);
+  width: 62px; height: 24px; transition: left .8s linear; z-index: 3;
+  filter: drop-shadow(0 0 7px rgba(255,255,255,.95)) drop-shadow(0 0 16px rgba(255,176,40,.8)); }
 .trk-train span { display: block; width: 100%; height: 100%; background: #fff;
-  border-radius: 5px 15px 15px 5px;
+  clip-path: polygon(3px 0, 74% 0, 100% 30%, 100% 70%, 74% 100%, 3px 100%, 0 75%, 0 25%);
   -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 44%, transparent 50%);
   mask-image: radial-gradient(circle at 50% 50%, #000 44%, transparent 50%);
-  -webkit-mask-size: 5px 5px; mask-size: 5px 5px;
-  filter: drop-shadow(0 0 7px rgba(255,255,255,.95)) drop-shadow(0 0 16px rgba(255,176,40,.8)); }
+  -webkit-mask-size: 5px 5px; mask-size: 5px 5px; }
 .track.is-cancelled .trk-train span { background: #ff6a5a; }
 
 /* ============ TRACKER (custom watch routines) ============ */
