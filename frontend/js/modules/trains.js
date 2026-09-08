@@ -68,6 +68,10 @@ export const trains = {
            <span class="muted">Check the Darwin token / station code in config.</span></div>`;
       }
     };
+    // Touch is bound through ctx.tap/tapRow, and pushing a watch reruns load() so the
+    // tracker appears on the tap rather than at the next poll.
+    this._ctx = ctx;
+    this._reload = load;
     await load();
     if (ctx.isCurrent && !ctx.isCurrent()) return;   // navigated away during first fetch
     this._timer = setInterval(load, (cfg.refresh?.trains || 30) * 1000);
@@ -133,7 +137,7 @@ export const trains = {
     el.querySelectorAll(".brow[data-sid]").forEach((row) => {
       if (!row.dataset.sid) return;
       row.classList.add("tappable");
-      row.onclick = async () => {
+      this._ctx.tapRow(row, async () => {
         row.classList.add("pushing");
         try {
           await fetch("/api/trains/watch", {
@@ -141,10 +145,11 @@ export const trains = {
             body: JSON.stringify({ service_id: row.dataset.sid, std: row.dataset.std,
               platform: row.dataset.plat || null, to_crs: to || null }),
           });
+          await this._reload?.();
         } finally {
           row.classList.remove("pushing");
         }
-      };
+      });
     });
   },
 
@@ -303,10 +308,11 @@ export const trains = {
     }
 
     const btn = el.querySelector("#w-stop");
-    if (btn) btn.onclick = async () => {
+    if (btn) this._ctx.tap(btn, async () => {
       btn.textContent = "Stopping…";
       await fetch("/api/trains/watch", { method: "DELETE" }).catch(() => {});
-    };
+      await this._reload?.();
+    });
   },
 
   // Scroll the "calling at …" line like a real platform board, but only when it actually
