@@ -102,7 +102,7 @@ async def patch_settings(
         elif key == "trains":
             # allow station/destination/rows but never the token
             t = candidate.setdefault("trains", {})
-            for k in ("station_crs", "destination_crs", "rows", "enabled"):
+            for k in ("station_crs", "destination_crs", "watch_crs", "rows", "enabled"):
                 if k in value:
                     t[k] = value[k]
     try:

@@ -112,6 +112,7 @@ class DarwinSoapProvider(RailProvider):
                 for cp in (cps[0].get("callingPoint") or []):
                     calling.append({
                         "name": cp.get("locationName"),
+                        "crs": cp.get("crs"),   # so a watch can be pushed to alight here
                         "st": cp.get("st"),
                         "et": cp.get("et"),
                     })

@@ -84,6 +84,10 @@
     <div id="trackers-body"><p class="muted">Loading…</p></div>
   </div>
 
+  <div class="panel" id="trains">
+    <div id="trains-body"><p class="muted">Loading…</p></div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -127,6 +131,7 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.id===t.dataset.tab));
   if (t.dataset.tab === "settings") loadSettings();
   if (t.dataset.tab === "trackers") loadTrackers();
+  if (t.dataset.tab === "trains") loadTrains();
 });
 
 // --- screen control ---
@@ -176,7 +181,9 @@ async function loadSettings() {
       <input id="s-efa" placeholder="${ef.access_key?'•••• (set)':'access key'}">
       <input id="s-efs" placeholder="${ef.secret_key?'•••• (set)':'secret key'}" style="margin-top:6px">
       <input id="s-efsn" value="${esc(ef.serial)}" placeholder="serial" style="margin-top:6px">
-      <label>Darwin (trains) token</label><input id="s-darwin" placeholder="${tr.token?'•••• (set)':''}"></div>
+      <label>Darwin (trains) token</label><input id="s-darwin" placeholder="${tr.token?'•••• (set)':''}">
+      <label>Stop you get off at <span class="muted">(CRS, e.g. BKD — used when you tap a departure on the screen)</span></label>
+      <input id="s-watchcrs" value="${esc(tr.watch_crs||'')}" maxlength="3"></div>
     <div class="card"><h2 style="margin-top:0">Holiday price <span class="muted">(re-paste searchId if it freezes)</span></h2>
       <div class="two"><div><label>Search ID</label><input id="s-hsid" value="${esc(ht.search_id)}"></div>
         <div><label>Account ID</label><input id="s-hacc" value="${esc(ht.account_id)}"></div></div></div>
@@ -240,7 +247,7 @@ $("#save").onclick = async () => {
     govee:{ api_key:val("s-gkey"), sku:val("s-gsku"), device:val("s-gdev") },
     govee_indoor:{ sku:val("s-gisku"), device:val("s-gidev"), enabled: !!(val("s-gisku") && val("s-gidev")) },
     ecoflow:{ access_key:val("s-efa"), secret_key:val("s-efs"), serial:val("s-efsn") },
-    trains:{ token:val("s-darwin") },
+    trains:{ token:val("s-darwin"), watch_crs:val("s-watchcrs").toUpperCase() },
     parcel_api:{ provider:"parcelapp", api_key:val("s-pkey") },
     holiday_tracker:{ search_id: parseInt(val("s-hsid"))||0, account_id: val("s-hacc") },
   };
@@ -252,6 +259,61 @@ $("#save").onclick = async () => {
 };
 
 // --- trackers ---
+// --- follow a train ---------------------------------------------------------------
+// The board only lists where a train terminates, so the stop being met at is picked per
+// departure from its own calling points - the train usually runs on well past it.
+async function loadTrains() {
+  const body = $("#trains-body");
+  body.innerHTML = `<p class="muted">Loading departures…</p>`;
+  let board, watching = null;
+  try {
+    board = (await get("/api/trains")).data;
+    watching = (await get("/api/trains/watch")).data;
+  } catch (e) {
+    body.innerHTML = `<div class="card"><p class="muted">${esc(e.message)}</p></div>`;
+    return;
+  }
+  const now = watching ? `<div class="card">
+      <h2 style="margin-top:0">Following</h2>
+      <p style="margin:.2em 0">${esc((watching.watch && watching.watch.std) || "")}
+        ${esc(watching.origin || "")} → ${esc(watching.destination || "")}</p>
+      <button class="act danger" id="unwatch" style="width:100%">Stop following</button>
+    </div>` : "";
+  const rows = (board.services || []).map((s, i) => {
+    if (!s.service_id) return "";
+    const stops = (s.calling_points || []).filter(c => c.crs);
+    const opts = stops.map(c =>
+      `<option value="${esc(c.crs)}">${esc(c.name)} · ${esc(c.st || "")}</option>`).join("");
+    return `<div class="card">
+      <p style="margin:.1em 0"><b>${esc(s.std || "")}</b> ${esc(s.destination || "")}
+        <span class="muted">${s.platform ? "plat " + esc(s.platform) : ""}
+        ${esc(s.cancelled ? "Cancelled" : (s.etd || ""))}</span></p>
+      <select id="to-${i}" ${stops.length ? "" : "disabled"}>${opts ||
+        "<option>no calling points</option>"}</select>
+      <button class="act primary" data-watch="${i}" style="width:100%; margin-top:6px"
+        >Follow this train</button>
+    </div>`;
+  }).join("");
+  body.innerHTML = now + (rows || `<div class="card"><p class="muted">No departures listed</p></div>`);
+  const un = $("#unwatch");
+  if (un) un.onclick = async () => {
+    try {
+      await fetch("/api/trains/watch", { method: "DELETE", headers: adminHeaders() });
+      toast("Stopped"); loadTrains();
+    } catch (e) { toast(e.message, true); }
+  };
+  body.querySelectorAll("[data-watch]").forEach(b => b.onclick = async () => {
+    const i = b.dataset.watch, s = board.services[i], sel = $("#to-" + i);
+    try {
+      await post("/api/trains/watch", { service_id: s.service_id, std: s.std,
+        platform: s.platform || null, to_crs: sel && sel.value ? sel.value : null }, true);
+      await post("/api/remote/cmd", { action: "go", value: "trains" }, true);
+      toast("Following " + (s.std || ""));
+      loadTrains();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
 async function loadTrackers() {
   let data; try { data = await get("/api/trackers"); } catch(e){ $("#trackers-body").innerHTML=`<p class="muted">Failed.</p>`; return; }
   const list = (data.trackers||[]);

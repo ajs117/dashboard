@@ -544,3 +544,7 @@ html, body {
 .parcel-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line);
   transition: background .2s; }
 .parcel-dots i.on { background: var(--accent); }
+
+/* A departure row is a button: tapping it follows that train on the track diagram. */
+.brow.tappable { cursor: pointer; }
+.brow.tappable:active, .brow.pushing { background: rgba(255,174,38,.12); }

@@ -86,7 +86,8 @@ export const trains = {
       const inner = calling ? "Calling at: " + calling : esc(s.operator || "");
       const exp = s.cancelled ? "Cancelled" : esc(s.etd || "");
       return `
-        <div class="brow ${s.cancelled ? "is-cancelled" : ""}">
+        <div class="brow ${s.cancelled ? "is-cancelled" : ""}" data-sid="${esc(s.service_id || "")}"
+             data-std="${esc(s.std || "")}" data-plat="${esc(s.platform || "")}">
           <div class="b-time">${esc(s.std || "")}</div>
           <div class="b-dest">
             <div class="dst">${esc(s.destination || "—")}</div>
@@ -124,6 +125,27 @@ export const trains = {
       { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
     this._setupTickers(el);
+
+    // Tapping a departure follows it. The kiosk is on loopback, so no token is needed; the
+    // alighting stop is `watch_crs` when set, since the board filters on where the train
+    // goes rather than where you actually get off.
+    const to = (cfg?.trains?.watch_crs || cfg?.trains?.destination_crs || "").trim();
+    el.querySelectorAll(".brow[data-sid]").forEach((row) => {
+      if (!row.dataset.sid) return;
+      row.classList.add("tappable");
+      row.onclick = async () => {
+        row.classList.add("pushing");
+        try {
+          await fetch("/api/trains/watch", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ service_id: row.dataset.sid, std: row.dataset.std,
+              platform: row.dataset.plat || null, to_crs: to || null }),
+          });
+        } finally {
+          row.classList.remove("pushing");
+        }
+      };
+    });
   },
 
   // The followed service, drawn as a line diagram: a dot-matrix rail with a stop per
