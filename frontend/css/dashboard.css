@@ -442,14 +442,15 @@ html, body {
 .w-late .w-big { color: #ffd24a; }
 .w-cancelled .w-big { color: #ff6a5a; text-shadow: 0 0 8px rgba(255,106,90,.45); }
 
-.track { flex: 1; display: flex; align-items: center; padding: 0 150px 30px 55px;
-  overflow: hidden; }
-.trk-inner { position: relative; width: 100%; height: 360px; }
+.track { flex: 1; display: flex; align-items: center; padding: 0 0 30px; overflow: hidden; }
+/* The strip is wider than the viewport and slides horizontally to keep the train centred. */
+.trk-viewport { position: relative; width: 100%; height: 360px; overflow: hidden; }
+.trk-strip { position: absolute; top: 0; left: 0; height: 100%; transition: transform .8s linear; }
 /* The rail is drawn as discrete dots so it reads as dot-matrix rather than a drawn line. */
-.trk-rail, .trk-fill { position: absolute; top: 140px; height: 10px; left: 0;
+.trk-rail, .trk-fill { position: absolute; top: 140px; height: 10px;
   background-image: radial-gradient(circle at 50% 50%, currentColor 42%, transparent 48%);
   background-size: 10px 10px; }
-.trk-rail { right: 0; color: rgba(255,174,38,.28); }
+.trk-rail { color: rgba(255,174,38,.28); }
 .trk-fill { color: #ffc23a; filter: drop-shadow(0 0 5px rgba(255,176,40,.7));
   transition: width .8s linear; }
 .track.is-cancelled .trk-fill { color: #ff6a5a; }

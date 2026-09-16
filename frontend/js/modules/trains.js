@@ -229,8 +229,13 @@ export const trains = {
     if (hi <= lo) { lo = 0; hi = stops.length - 1; }
     if (reached >= 0 && reached < lo) lo = reached;
     const view = stops.slice(lo, hi + 1);
+    // Fixed pixel pitch per stop on a wide strip that slides to keep the train centred,
+    // rather than squeezing every stop into the width - 21 stops crammed the time labels
+    // into an unreadable run. A short route still fits and just sits left-aligned.
+    const GAP = 130, PAD_L = 60, PAD_R = 150;
     const span = Math.max(1, view.length - 1);
-    const pct = (i) => (Math.min(span, Math.max(0, i - lo)) / span) * 100;
+    const xOf = (i) => PAD_L + (Math.min(hi, Math.max(lo, i)) - lo) * GAP;
+    const stripW = PAD_L + span * GAP + PAD_R;
 
     const dots = view.map((s, vi) => {
       const i = vi + lo;
@@ -247,14 +252,15 @@ export const trains = {
       const tCls = late == null ? "" : late > 0 ? "exp-late" : "exp-ontime";
       return `
         <div class="trk-stop ${cls} ${i === herIdx ? "is-hers" : ""} ${
-          s.cancelled ? "is-cancelled" : ""}" style="left:${pct(i).toFixed(2)}%">
+          s.cancelled ? "is-cancelled" : ""}" style="left:${xOf(i)}px">
           <div class="ts-time ${tCls}">${esc(shown || "")}</div>
           <span class="ts-dot"></span>
           <div class="ts-name">${esc(s.name || "")}</div>
         </div>`;
     }).join("");
 
-    const trainPct = pct(pos);
+    const trainX = PAD_L + (Math.min(hi, Math.max(lo, pos)) - lo) * GAP;
+    const railW = span * GAP;
     const etaCls = delay == null ? "" : delay > 0 ? "exp-late" : "exp-ontime";
     el.innerHTML = `
       <div class="board-head">
@@ -276,11 +282,13 @@ export const trains = {
       ${d.delay_reason && !d.cancelled ? `<div class="nrcc">⚠️ ${esc(d.delay_reason)}</div>` : ""}
       <div class="track ${d.cancelled ? "is-cancelled" : ""} ${
         delay > 0 && !arrived ? "hers-late" : ""}">
-        <div class="trk-inner">
-          <div class="trk-rail"></div>
-          <div class="trk-fill" style="width:${trainPct.toFixed(2)}%"></div>
-          ${dots}
-          <div class="trk-train" style="left:${trainPct.toFixed(2)}%"><span></span></div>
+        <div class="trk-viewport">
+          <div class="trk-strip" style="width:${stripW}px">
+            <div class="trk-rail" style="left:${PAD_L}px; width:${railW}px"></div>
+            <div class="trk-fill" style="left:${PAD_L}px; width:${(trainX - PAD_L).toFixed(1)}px"></div>
+            ${dots}
+            <div class="trk-train" style="left:${trainX.toFixed(1)}px"><span></span></div>
+          </div>
         </div>
       </div>`;
 
@@ -288,12 +296,21 @@ export const trains = {
     if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
       { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
+    // Slide the strip so the train sits near the middle of the viewport, clamped so the
+    // ends of the line stay pinned to the edges rather than pulling in past them.
+    const vp = el.querySelector(".trk-viewport");
+    const strip = el.querySelector(".trk-strip");
+    const Vw = vp ? vp.clientWidth : 900;
+    const minTx = Math.min(0, Vw - stripW);
+    const clampTx = (x) => Math.max(minTx, Math.min(0, Vw / 2 - x));
+    if (strip) strip.style.transform = `translateX(${clampTx(trainX).toFixed(1)}px)`;
+
     // Between polls the marker was frozen: the position was only recomputed on the 30s
-    // data refresh, so a train "creeping" actually jumped once every half minute. Slide it
-    // on the clock between the two stops the data already fixed it between.
+    // data refresh, so a train "creeping" actually jumped once every half minute. Slide the
+    // train (and the strip under it) on the clock between the two stops the data fixed.
     clearInterval(this._posTimer);
     if (creeping) {
-      const p0 = pct(reached), p1 = pct(reached + 1);
+      const x0 = xOf(reached), x1 = xOf(reached + 1);
       const train = el.querySelector(".trk-train");
       const fill = el.querySelector(".trk-fill");
       this._posTimer = setInterval(() => {
@@ -301,9 +318,10 @@ export const trains = {
         const t = new Date();
         const m = t.getHours() * 60 + t.getMinutes() + t.getSeconds() / 60;
         const f = Math.min(1, Math.max(0, (m - from) / (to - from)));
-        const at = `${(p0 + (p1 - p0) * f).toFixed(2)}%`;
-        train.style.left = at;
-        if (fill) fill.style.width = at;
+        const x = x0 + (x1 - x0) * f;
+        train.style.left = `${x.toFixed(1)}px`;
+        if (fill) fill.style.width = `${(x - PAD_L).toFixed(1)}px`;
+        if (strip) strip.style.transform = `translateX(${clampTx(x).toFixed(1)}px)`;
       }, 1000);
     }
 
