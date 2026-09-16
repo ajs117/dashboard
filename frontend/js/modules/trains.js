@@ -300,7 +300,15 @@ export const trains = {
     const Vw = vp ? vp.clientWidth : 900;
     const minTx = Math.min(0, Vw - stripW);
     const clampTx = (x) => Math.max(minTx, Math.min(0, Vw / 2 - x));
-    if (strip) strip.style.transform = `translateX(${clampTx(trainX).toFixed(1)}px)`;
+    // Snap to position with the transition off: a fresh strip starts at translateX(0), so
+    // letting the .8s transition run on every poll made the whole route scroll across on each
+    // update. Only the per-second creep below should animate.
+    if (strip) {
+      strip.style.transition = "none";
+      strip.style.transform = `translateX(${clampTx(trainX).toFixed(1)}px)`;
+      void strip.offsetHeight;
+      strip.style.transition = "";
+    }
 
     // Between polls the marker was frozen: the position was only recomputed on the 30s
     // data refresh, so a train "creeping" actually jumped once every half minute. Slide the
