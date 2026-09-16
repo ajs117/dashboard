@@ -16,6 +16,7 @@ from typing import Any
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _HHMM = re.compile(r"^\d{1,2}:\d{2}$")
+_HHMM_IN = re.compile(r"(\d{1,2}):(\d{2})")
 
 
 def shift(t: str | None, mins: int) -> str | None:
@@ -35,6 +36,13 @@ def _gap(a: str | None, b: str | None) -> int:
     hb, mb = (int(x) for x in b.split(":"))
     d = (hb * 60 + mb) - (ha * 60 + ma)
     return d if 0 < d < 60 else 0
+
+
+def _hhmm_min(s: str) -> int | None:
+    """Minutes-since-midnight from a clock time or ISO timestamp; None if none present.
+    The first HH:MM in an ISO string is the time (the date has no colon)."""
+    m = _HHMM_IN.search(s or "")
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
 
 
 def _strip_html(text: str) -> str:
@@ -89,8 +97,14 @@ class DarwinSoapProvider(RailProvider):
         rows = int(trains.get("rows", 10))
         dest = (trains.get("destination_crs") or "").strip() or None
 
+        # Look back a few minutes so a train you just missed stays on the board and can still
+        # be followed - Darwin drops a service the moment it departs, otherwise. numRows counts
+        # from the window start, so widen it to keep the same number of upcoming departures.
+        lookback = int(trains.get("lookback_min", 15))
         self._ensure_client(token)
-        kwargs: dict[str, Any] = {"numRows": rows, "crs": crs}
+        kwargs: dict[str, Any] = {"numRows": rows + 3 if lookback > 0 else rows, "crs": crs}
+        if lookback > 0:
+            kwargs["timeOffset"] = -lookback
         if dest:
             kwargs["filterCrs"] = dest
             kwargs["filterType"] = "to"
@@ -102,6 +116,7 @@ class DarwinSoapProvider(RailProvider):
     @staticmethod
     def _parse(board: dict[str, Any]) -> dict[str, Any]:
         services_raw = ((board.get("trainServices") or {}).get("service")) or []
+        now_min = _hhmm_min(str(board.get("generatedAt") or ""))
         services = []
         for s in services_raw:
             dest = ((s.get("destination") or {}).get("location")) or []
@@ -116,8 +131,13 @@ class DarwinSoapProvider(RailProvider):
                         "st": cp.get("st"),
                         "et": cp.get("et"),
                     })
+            std = s.get("std")
+            std_min = _hhmm_min(std or "")
+            departed = (now_min is not None and std_min is not None
+                        and 0 <= (now_min - std_min) <= 180)
             services.append({
                 "service_id": s.get("serviceID"),   # opaque Darwin handle; needed to watch it
+                "departed": departed,           # left already but still followable (lookback window)
                 "std": s.get("std"),            # scheduled departure
                 "etd": s.get("etd"),            # estimated/expected ("On time", "Delayed", time)
                 "platform": s.get("platform"),

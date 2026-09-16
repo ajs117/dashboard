@@ -88,9 +88,9 @@ export const trains = {
     const rows = services.map((s) => {
       const calling = (s.calling_points || []).map((c) => esc(c.name)).join(" • ");
       const inner = calling ? "Calling at: " + calling : esc(s.operator || "");
-      const exp = s.cancelled ? "Cancelled" : esc(s.etd || "");
+      const exp = s.cancelled ? "Cancelled" : s.departed ? "Departed" : esc(s.etd || "");
       return `
-        <div class="brow ${s.cancelled ? "is-cancelled" : ""}" data-sid="${esc(s.service_id || "")}"
+        <div class="brow ${s.cancelled ? "is-cancelled" : ""} ${s.departed ? "departed" : ""}" data-sid="${esc(s.service_id || "")}"
              data-std="${esc(s.std || "")}" data-plat="${esc(s.platform || "")}">
           <div class="b-time">${esc(s.std || "")}</div>
           <div class="b-dest">

@@ -424,6 +424,9 @@ html, body {
 .exp-late { color: #ffd24a; }
 .exp-cancelled { color: #ff6a5a; }
 .brow.is-cancelled .b-dest .dst { color: rgba(255,174,38,.4); text-decoration: line-through; }
+/* Departed but still within the look-back window: dimmed, but still tappable to follow. */
+.brow.departed { opacity: .5; }
+.brow.departed .b-exp { color: rgba(255,174,38,.55); }
 
 /* ---- Followed service: line diagram with the train's live position ---- */
 .wstat { display: flex; align-items: baseline; gap: 20px; padding: 14px 24px 14px 150px;

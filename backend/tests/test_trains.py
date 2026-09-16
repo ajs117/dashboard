@@ -70,3 +70,26 @@ def test_parse_empty_board():
     out = DarwinSoapProvider._parse({"locationName": "Nowhere", "crs": "XXX"})
     assert out["services"] == []
     assert out["messages"] == []
+
+
+def test_departed_flag_from_generated_at():
+    # generatedAt is an ISO stamp; std is a bare clock time. A service whose std is a few
+    # minutes before "now" is still on the board (look-back) but flagged departed; an upcoming
+    # one is not. The first HH:MM in the ISO stamp must be read as the time, not the date.
+    board = {
+        "locationName": "Birmingham Snow Hill", "crs": "BSW",
+        "generatedAt": "2026-09-16T17:14:23.5+01:00",
+        "trainServices": {"service": [
+            {"std": "17:01", "etd": "On time", "destination": {"location": [{"locationName": "X"}]}},
+            {"std": "17:16", "etd": "On time", "destination": {"location": [{"locationName": "Y"}]}},
+        ]},
+    }
+    svc = DarwinSoapProvider._parse(board)["services"]
+    assert svc[0]["std"] == "17:01" and svc[0]["departed"] is True
+    assert svc[1]["std"] == "17:16" and svc[1]["departed"] is False
+
+
+def test_departed_false_without_generated_at():
+    board = {"locationName": "N", "crs": "X", "trainServices": {"service": [
+        {"std": "09:00", "etd": "On time", "destination": {"location": [{"locationName": "Z"}]}}]}}
+    assert DarwinSoapProvider._parse(board)["services"][0]["departed"] is False
