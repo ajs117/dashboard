@@ -436,8 +436,9 @@ html, body {
 .w-where { font-size: 16px; color: rgba(255,174,38,.72); flex: 1; }
 .w-eta { font-size: 15px; color: rgba(255,174,38,.62); }
 .w-eta b { font-size: 26px; margin-left: 8px; font-variant-numeric: tabular-nums; }
-.w-stop { background: transparent; color: rgba(255,174,38,.7); font: inherit; font-size: 13px;
-  border: 1px solid rgba(255,174,38,.35); border-radius: 6px; padding: 7px 14px; }
+.w-stop { background: rgba(255,174,38,.08); color: rgba(255,174,38,.85); font: inherit;
+  font-size: 18px; border: 1px solid rgba(255,174,38,.45); border-radius: 8px;
+  padding: 16px 26px; min-height: 56px; touch-action: none; }
 .w-ontime .w-big { color: #57e06a; text-shadow: 0 0 8px rgba(87,224,106,.45); }
 .w-late .w-big { color: #ffd24a; }
 .w-cancelled .w-big { color: #ff6a5a; text-shadow: 0 0 8px rgba(255,106,90,.45); }

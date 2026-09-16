@@ -323,7 +323,7 @@ export const trains = {
     }
 
     const btn = el.querySelector("#w-stop");
-    if (btn) this._ctx.tap(btn, async () => {
+    if (btn) this._ctx.tapRow(btn, async () => {
       btn.textContent = "Stopping…";
       await fetch("/api/trains/watch", { method: "DELETE" }).catch(() => {});
       await this._reload?.();
