@@ -219,15 +219,12 @@ export const trains = {
     if (reached >= 0 && creeping) {
       pos = reached + Math.min(1, Math.max(0, (nowMin - from) / (to - from)));
     }
-    // Zoom to the leg actually being travelled. Drawing the full run from Stratford to
-    // Worcester squeezed the relevant stops into a corner, and showing stations east of
-    // Birmingham on a westbound journey read as the train going the wrong way. The window
-    // is widened backwards if the train has not reached the boarding station yet, so it is
-    // always visible on the line.
-    let lo = boardIdx >= 0 ? boardIdx : 0;
-    let hi = herIdx >= 0 ? herIdx : stops.length - 1;
-    if (hi <= lo) { lo = 0; hi = stops.length - 1; }
-    if (reached >= 0 && reached < lo) lo = reached;
+    // Show the whole service, origin to destination. The strip slides, so length is no
+    // longer a reason to hide the stops before boarding - and clamping the window to start
+    // at the boarding station parked the marker there, making an as-yet-undeparted train
+    // look like it was already sitting at Snow Hill. On a schedule line the marker only ever
+    // moves left to right, so earlier stops can't read as "going the wrong way".
+    const lo = 0, hi = stops.length - 1;
     const view = stops.slice(lo, hi + 1);
     // Fixed pixel pitch per stop on a wide strip that slides to keep the train centred,
     // rather than squeezing every stop into the width - 21 stops crammed the time labels
