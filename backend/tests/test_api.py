@@ -156,3 +156,23 @@ def test_claude_usage_rejects_a_shapeless_payload(client):
     r = client.post("/api/claude-usage", json={"nope": 1},
                     headers={"X-Admin-Token": "hunter2"})
     assert r.status_code == 400
+
+
+def test_landed_flight_clears_itself(client, monkeypatch, tmp_path):
+    """A watched flight seen landed is dropped from config by the /flights/watch route."""
+    import app.config as config_mod
+    from app.providers import flightwatch
+
+    config_mod.get()["watch_flights"] = ["CX255"]
+    config_mod.save()
+
+    async def fake_fetch(cfg):
+        return {"flights": [{"callsign": "CX255", "status": "landed"}], "count": 1}
+    monkeypatch.setattr(flightwatch, "fetch", fake_fetch)
+
+    r = client.get("/api/flights/watch")
+    assert r.status_code == 200
+    # Reloading from disk proves it was persisted, not just mutated in memory.
+    reloaded = config_mod.load()
+    assert reloaded.get("watch_flights") == []
+    assert reloaded.get(flightwatch.ADDED_KEY) == {}

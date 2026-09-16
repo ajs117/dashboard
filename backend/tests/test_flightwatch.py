@@ -145,3 +145,49 @@ async def test_lookup_distinguishes_total_outage_from_empty_result(
 
     make_mock_http(lambda request: httpx.Response(200, json={"ac": []}))
     assert await flightwatch._lookup("BA123") is None
+
+
+# --- one-shot watch lifecycle -------------------------------------------------------
+
+def test_sync_added_stamps_new_and_forgets_removed():
+    cfg = {"watch_flights": ["CX255", "ba99"]}
+    assert flightwatch.sync_added(cfg, now=1000.0) is True
+    assert cfg[flightwatch.ADDED_KEY] == {"CX255": 1000.0, "BA99": 1000.0}
+    # A second pass with no change is a no-op.
+    assert flightwatch.sync_added(cfg, now=2000.0) is False
+    # Dropping a callsign forgets its add-time.
+    cfg["watch_flights"] = ["CX255"]
+    assert flightwatch.sync_added(cfg, now=3000.0) is True
+    assert cfg[flightwatch.ADDED_KEY] == {"CX255": 1000.0}
+
+
+def test_expired_when_landed():
+    cfg = {"watch_flights": ["CX255"], flightwatch.ADDED_KEY: {"CX255": 1000.0}}
+    flights = [{"callsign": "CX255", "status": "landed"}]
+    assert flightwatch.expired(cfg, flights, now=1100.0) == ["CX255"]
+
+
+def test_expired_past_safety_net():
+    cfg = {"watch_flights": ["CX255"], flightwatch.ADDED_KEY: {"CX255": 1000.0}}
+    flights = [{"callsign": "CX255", "status": "not_tracked"}]
+    within = 1000.0 + 23 * 3600
+    beyond = 1000.0 + 25 * 3600
+    assert flightwatch.expired(cfg, flights, now=within) == []
+    assert flightwatch.expired(cfg, flights, now=beyond) == ["CX255"]
+
+
+def test_not_tracked_within_window_is_kept():
+    # The wedge case: no fix yet, but recently added -> still a live watch, not cleared.
+    cfg = {"watch_flights": ["CX255"], flightwatch.ADDED_KEY: {"CX255": 1000.0}}
+    flights = [{"callsign": "CX255", "status": "not_tracked"}]
+    assert flightwatch.expired(cfg, flights, now=1000.0 + 2 * 3600) == []
+
+
+def test_drop_removes_from_list_and_map():
+    cfg = {"watch_flights": ["CX255", "BA99"],
+           flightwatch.ADDED_KEY: {"CX255": 1.0, "BA99": 2.0}}
+    assert flightwatch.drop(cfg, ["cx255"]) is True
+    assert cfg["watch_flights"] == ["BA99"]
+    assert cfg[flightwatch.ADDED_KEY] == {"BA99": 2.0}
+    # Dropping something not present changes nothing.
+    assert flightwatch.drop(cfg, ["XX000"]) is False

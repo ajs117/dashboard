@@ -251,10 +251,22 @@ async def post_claude_usage(
 
 @router.get("/flights/watch")
 async def get_watched_flights() -> dict[str, Any]:
-    """Live status of the watched flights (config: watch_flights)."""
+    """Live status of the watched flights (config: watch_flights).
+
+    A watch is one-shot: once a flight lands (or its safety-net window lapses) its callsign
+    is dropped, so it stops re-tracking the same daily flight number on later days.
+    """
     cfg = config.get()
     ttl = _ttls().get("flightwatch", 30)
-    return await cache.get_or_fetch("flightwatch", ttl, lambda: flightwatch.fetch(cfg))
+    if flightwatch.sync_added(cfg):
+        config.save()
+    env = await cache.get_or_fetch("flightwatch", ttl, lambda: flightwatch.fetch(cfg))
+    flights = (env.get("data") or {}).get("flights") or []
+    if flightwatch.drop(cfg, flightwatch.expired(cfg, flights)):
+        config.save()
+        cache.clear()
+        env = await cache.get_or_fetch("flightwatch", ttl, lambda: flightwatch.fetch(cfg))
+    return env
 
 
 _LOOPBACK = {"127.0.0.1", "::1", "localhost"}

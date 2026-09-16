@@ -37,9 +37,83 @@ _limiter = RateLimiter(min_interval=1.05)     # these ask for <=1 req/sec
 _last_seen: dict[str, dict[str, Any]] = {}
 _MAX_REMEMBERED = 40
 
+# A watch is one-shot: it clears when the flight lands, and failing that after this long,
+# so a flight that lands unobserved (out of coverage, or before the process saw it airborne)
+# can't wedge on the panel forever. Wider than any scheduled flight plus a lead-in.
+_MAX_WATCH_HOURS = 24
+# Sidecar map {CALLSIGN: epoch_added}, persisted in config so the safety-net clock survives
+# a restart. Kept separate from watch_flights so that list stays plain callsign strings.
+ADDED_KEY = "watch_flights_added"
+
 
 def normalise(callsign: str) -> str:
     return (callsign or "").strip().upper().replace(" ", "")
+
+
+def _added_map(cfg: dict[str, Any]) -> dict[str, Any]:
+    m = cfg.get(ADDED_KEY)
+    return m if isinstance(m, dict) else {}
+
+
+def _wanted(cfg: dict[str, Any]) -> list[str]:
+    return [n for n in (normalise(c) for c in (cfg.get("watch_flights") or [])) if n]
+
+
+def sync_added(cfg: dict[str, Any], now: float | None = None) -> bool:
+    """Stamp an add-time for each newly watched callsign, forget ones no longer watched.
+
+    Returns whether cfg changed (so the caller can persist). Stamping on first sighting
+    rather than at add-time is close enough: the panel polls every ~30s.
+    """
+    now = time.time() if now is None else now
+    wanted = _wanted(cfg)
+    m = dict(_added_map(cfg))
+    changed = False
+    for cs in wanted:
+        if cs not in m:
+            m[cs] = now
+            changed = True
+    for gone in [k for k in m if k not in wanted]:
+        m.pop(gone, None)
+        changed = True
+    if changed:
+        cfg[ADDED_KEY] = m
+    return changed
+
+
+def expired(cfg: dict[str, Any], flights: list[dict[str, Any]],
+            now: float | None = None) -> list[str]:
+    """Callsigns whose one-shot watch is done: landed, or past the safety-net window."""
+    now = time.time() if now is None else now
+    m = _added_map(cfg)
+    drop: list[str] = []
+    for f in flights:
+        cs = normalise(f.get("callsign"))
+        if not cs:
+            continue
+        if f.get("status") == "landed":
+            drop.append(cs)
+            continue
+        added = m.get(cs)
+        if isinstance(added, (int, float)) and (now - added) > _MAX_WATCH_HOURS * 3600:
+            drop.append(cs)
+    return drop
+
+
+def drop(cfg: dict[str, Any], callsigns: list[str]) -> bool:
+    """Remove callsigns from watch_flights and the add-time map. True if cfg changed."""
+    gone = {normalise(c) for c in callsigns if normalise(c)}
+    if not gone:
+        return False
+    old = cfg.get("watch_flights") or []
+    new = [c for c in old if normalise(c) not in gone]
+    m = _added_map(cfg)
+    new_m = {k: v for k, v in m.items() if k not in gone}
+    if len(new) == len(old) and new_m == m:
+        return False
+    cfg["watch_flights"] = new
+    cfg[ADDED_KEY] = new_m
+    return True
 
 
 def progress(cur_lat: float, cur_lon: float,
