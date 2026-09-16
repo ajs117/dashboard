@@ -293,22 +293,22 @@ export const trains = {
     if (clk) clk.textContent = new Date().toLocaleTimeString("en-GB",
       { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
-    // Slide the strip so the train sits near the middle of the viewport, clamped so the
-    // ends of the line stay pinned to the edges rather than pulling in past them.
+    // The viewport scrolls horizontally by touch so you can pan back to stops the train has
+    // already passed. Auto-centre on the train, but back off while you're looking: any manual
+    // pan suspends the auto-centre briefly so it doesn't yank you back to the marker mid-look.
+    // pointerdown/wheel mark a real interaction; programmatic scrollLeft does not, so setting
+    // the centre here and on the creep below never triggers the guard.
     const vp = el.querySelector(".trk-viewport");
-    const strip = el.querySelector(".trk-strip");
     const Vw = vp ? vp.clientWidth : 900;
-    const minTx = Math.min(0, Vw - stripW);
-    const clampTx = (x) => Math.max(minTx, Math.min(0, Vw / 2 - x));
-    // Snap to position with the transition off: a fresh strip starts at translateX(0), so
-    // letting the .8s transition run on every poll made the whole route scroll across on each
-    // update. Only the per-second creep below should animate.
-    if (strip) {
-      strip.style.transition = "none";
-      strip.style.transform = `translateX(${clampTx(trainX).toFixed(1)}px)`;
-      void strip.offsetHeight;
-      strip.style.transition = "";
+    const centreOn = (x) => {
+      if (vp) vp.scrollLeft = Math.max(0, Math.min(stripW - Vw, x - Vw / 2));
+    };
+    if (vp) {
+      const mark = () => { this._userPanUntil = Date.now() + 15000; };
+      vp.addEventListener("pointerdown", mark);
+      vp.addEventListener("wheel", mark, { passive: true });
     }
+    if (Date.now() > (this._userPanUntil || 0)) centreOn(trainX);
 
     // Between polls the marker was frozen: the position was only recomputed on the 30s
     // data refresh, so a train "creeping" actually jumped once every half minute. Slide the
@@ -326,7 +326,7 @@ export const trains = {
         const x = x0 + (x1 - x0) * f;
         train.style.left = `${x.toFixed(1)}px`;
         if (fill) fill.style.width = `${(x - PAD_L).toFixed(1)}px`;
-        if (strip) strip.style.transform = `translateX(${clampTx(x).toFixed(1)}px)`;
+        if (Date.now() > (this._userPanUntil || 0)) centreOn(x);
       }, 1000);
     }
 
